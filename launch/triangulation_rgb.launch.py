@@ -23,12 +23,12 @@ def generate_launch_description():
 
 
         Node(
-            package='disparity',
+            package='passive_stereo',
             namespace='/sm2/disparity',
             executable='disparity',
             name='disparity',
             parameters=[{'stereo_params_file': PathJoinSubstitution(
-                [FindPackageShare('disparity'), 'cfg', LaunchConfig('yaml_file')])}],
+                [FindPackageShare('passive_stereo'), 'cfg', LaunchConfig('yaml_file')])}],
             remappings=[
                 ('/left/image_raw', LaunchConfig('left_image')),
                 ('/right/image_raw', LaunchConfig('right_image')),
@@ -38,12 +38,12 @@ def generate_launch_description():
             ]
         ),
         Node(
-            package='disparity',
+            package='passive_stereo',
             namespace='triangulation',
             executable='triangulation_rgb',
             name='triangulation_rgb',
             remappings=[
-                ('/disparity/disparity_image', LaunchConfig('disparity')),
+                ('/disparity/disparity_image', LaunchConfig('passive_stereo')),
                 ('/left/image_raw', LaunchConfig('left_image')),
                 ('/left/camera_info', LaunchConfig('left_info'))
             ]

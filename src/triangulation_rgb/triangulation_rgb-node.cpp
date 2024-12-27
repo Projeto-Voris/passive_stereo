@@ -3,8 +3,8 @@
 using std::placeholders::_1;
 
 TriangulationNode::TriangulationNode(sensor_msgs::msg::CameraInfo camera_info): Node("triangulation_rgb") {
-    std::string disparity_image_topic = "/disparity/disparity_image";
-    std::string left_image_topic = "/left/image_raw";
+    std::string disparity_image_topic = "disparity_image";
+    std::string left_image_topic = "left/image_raw";
 
     disparity_sub = std::make_shared<message_filters::Subscriber<stereo_msgs::msg::DisparityImage> >(
         this, disparity_image_topic);
@@ -34,8 +34,8 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
     sensor_msgs::msg::PointCloud2 pointcloudmsg;
     baseline_ = 10*disp_msg->t;
 
-    RCLCPP_INFO(this->get_logger(), "Processing disp at timestamp: %d", disp_msg->header.stamp.sec);
-    RCLCPP_INFO(this->get_logger(), "Processing left at timestamp: %d", left_msg->header.stamp.sec);
+    // RCLCPP_INFO(this->get_logger(), "Processing disp at timestamp: %d", disp_msg->header.stamp.sec);
+    // RCLCPP_INFO(this->get_logger(), "Processing left at timestamp: %d", left_msg->header.stamp.sec);
 
     // Convert disparity and left images to OpenCV format
     try {
@@ -60,25 +60,31 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
     pointcloudmsg.is_dense = false; // Allow NaN points
     pointcloudmsg.is_bigendian = false; // Little-endian (default for most systems)
 
-    // Add fields for x, y, z, and rgb
+    // Add fields for x, y, z, and optionally rgb based on encoding
     sensor_msgs::PointCloud2Modifier modifier(pointcloudmsg);
-    modifier.setPointCloud2Fields(4,
-                                  "x", 1, sensor_msgs::msg::PointField::FLOAT32,
-                                  "y", 1, sensor_msgs::msg::PointField::FLOAT32,
-                                  "z", 1, sensor_msgs::msg::PointField::FLOAT32,
-                                  "rgb", 1, sensor_msgs::msg::PointField::FLOAT32);
+    if (left_msg->encoding == sensor_msgs::image_encodings::BGR8 || left_msg->encoding == sensor_msgs::image_encodings::RGB8) {
+        modifier.setPointCloud2Fields(4,
+                                      "x", 1, sensor_msgs::msg::PointField::FLOAT32,
+                                      "y", 1, sensor_msgs::msg::PointField::FLOAT32,
+                                      "z", 1, sensor_msgs::msg::PointField::FLOAT32,
+                                      "rgb", 1, sensor_msgs::msg::PointField::FLOAT32);
+        pointcloudmsg.point_step = 16;  // 4 fields * 4 bytes (x, y, z, rgb)
+    } else {
+        modifier.setPointCloud2Fields(3,
+                                      "x", 1, sensor_msgs::msg::PointField::FLOAT32,
+                                      "y", 1, sensor_msgs::msg::PointField::FLOAT32,
+                                      "z", 1, sensor_msgs::msg::PointField::FLOAT32);
+        pointcloudmsg.point_step = 12;  // 3 fields * 4 bytes (x, y, z)
+    }
 
-    // Set point step and row step
-    pointcloudmsg.point_step = 16;  // 4 fields * 4 bytes (x, y, z, rgb)
+    // Set row step
     pointcloudmsg.row_step = pointcloudmsg.point_step * pointcloudmsg.width;
 
     // Resize the point cloud data array
     pointcloudmsg.data.resize(pointcloudmsg.row_step * pointcloudmsg.height);
     float* disparity_data = (float*)cv_ptr_disp->image.data;
 
-#pragma omp parallel for
     // Iterate through disparity map and generate point cloud
-    // Iterate through disparity map with downsampling
     for (int i = 0; i < height; i += sampling_factor) {
         for (int j = 0; j < width; j += sampling_factor) {
             float disparity = disparity_data[i * width + j];
@@ -88,17 +94,19 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
                 float x = (j - principal_x_) * z / fx_;
                 float y = (i - principal_y_) * z / fy_;
 
-                // Get RGB from the left image
-                cv::Vec3b bgr = cv_ptr_left->image.at<cv::Vec3b>(i, j);
-                uint8_t r = bgr[2], g = bgr[1], b = bgr[0];
-                uint32_t rgb = ((uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b);
-
-                // Copy x, y, z, and rgb to the point cloud message data
-                int index = (i / sampling_factor * pointcloudmsg.width + j / sampling_factor) * 16;
+                // Copy x, y, z to the point cloud message data
+                int index = (i / sampling_factor * pointcloudmsg.width + j / sampling_factor) * pointcloudmsg.point_step;
                 memcpy(&pointcloudmsg.data[index], &x, sizeof(float));
                 memcpy(&pointcloudmsg.data[index + 4], &y, sizeof(float));
                 memcpy(&pointcloudmsg.data[index + 8], &z, sizeof(float));
-                memcpy(&pointcloudmsg.data[index + 12], &rgb, sizeof(uint32_t));
+
+                // Optionally add RGB if encoding is BGR8 or RGB8
+                if (left_msg->encoding == sensor_msgs::image_encodings::BGR8 || left_msg->encoding == sensor_msgs::image_encodings::RGB8) {
+                    cv::Vec3b bgr = cv_ptr_left->image.at<cv::Vec3b>(i, j);
+                    uint8_t r = bgr[2], g = bgr[1], b = bgr[0];
+                    uint32_t rgb = ((uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b);
+                    memcpy(&pointcloudmsg.data[index + 12], &rgb, sizeof(uint32_t));
+                }
             }
         }
     }

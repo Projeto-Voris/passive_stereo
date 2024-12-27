@@ -83,7 +83,7 @@ void DisparityNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const Ima
     auto dispmsg = stereo_msgs::msg::DisparityImage();
     cv::Mat rectImgL, rectImgR;
     if(msgLeft->encoding == msgRight->encoding && msgLeft->encoding == "mono8") {
-        RCLCPP_ERROR(this->get_logger(), "mono8 encoding");
+        // RCLCPP_ERROR(this->get_logger(), "mono8 encoding");
         rectImgL = cv_ptrLeft->image;
         rectImgR = cv_ptrRight->image;
     }

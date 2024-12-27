@@ -3,10 +3,9 @@
 using std::placeholders::_1;
 
 TriangulationNode::TriangulationNode(sensor_msgs::msg::CameraInfo camera_info): Node("triangulation") {
-    std::string disparity_image_topic = "/disparity/disparity_image";
 
     disparity_sub_ = this->create_subscription<stereo_msgs::msg::DisparityImage>(
-        disparity_image_topic, 10, std::bind(&TriangulationNode::GrabImage, this, _1));
+        "/disparity_image", 10, std::bind(&TriangulationNode::GrabImage, this, _1));
 
     baseline_ = camera_info.p[3];
     principal_x_ = camera_info.k[2];
@@ -17,13 +16,13 @@ TriangulationNode::TriangulationNode(sensor_msgs::msg::CameraInfo camera_info): 
     RCLCPP_INFO(this->get_logger(), "Baseline: %f", baseline_);
     RCLCPP_INFO(this->get_logger(), "fx: %f", fx_);
 
-    pointcloud_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("pointcloud", 10);
+    pointcloud_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/pointcloud", 10);
 }
 
 void TriangulationNode::GrabImage(const stereo_msgs::msg::DisparityImage::ConstSharedPtr disparity_image_msg) {
     auto pointcloudmsg = sensor_msgs::msg::PointCloud2();
     baseline_ = 10*disparity_image_msg->t;
-    RCLCPP_INFO(this->get_logger(), "baseline x: %f", disparity_image_msg->t);
+    // RCLCPP_INFO(this->get_logger(), "baseline x: %f", disparity_image_msg->t);
     try {
         cv_ptr_disp = cv_bridge::toCvCopy(disparity_image_msg->image, sensor_msgs::image_encodings::TYPE_32FC1);
     } catch (cv_bridge::Exception &e) {
@@ -34,7 +33,7 @@ void TriangulationNode::GrabImage(const stereo_msgs::msg::DisparityImage::ConstS
     int height = cv_ptr_disp->image.size().height;
 
     pointcloudmsg.header.stamp = this->get_clock()->now();
-    pointcloudmsg.header.frame_id = "depth_map";
+    pointcloudmsg.header.frame_id = "left_camera_link";
     pointcloudmsg.height = 1;
     pointcloudmsg.width = width * height;
     pointcloudmsg.is_dense = false;

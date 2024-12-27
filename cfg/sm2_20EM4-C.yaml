@@ -1,0 +1,15 @@
+%YAML:1.0
+---
+numDisparities: 128
+blockSize: 21
+preFilterType: 0
+preFilterSize: 11
+preFilterCap: 62
+minDisparity: 1
+textureThreshold: 99
+uniquenessRatio: 39
+speckleRange: 16
+speckleWindowSize: 50
+disp12MaxDiff: 5
+lambda: 25
+sigma: 1
