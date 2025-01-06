@@ -4,8 +4,13 @@ int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);
 
-    std::string left_info_topic = "/left/camera_info";
-    std::string right_info_topic = "/right/camera_info";
+    if (argc < 3) {
+        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Usage: disparity_node <left_info_topic> <right_info_topic>");
+        return 1;
+    }
+
+    std::string left_info_topic = argv[1];
+    std::string right_info_topic = argv[2];
 
     auto right_camera_info = sensor_msgs::msg::CameraInfo();
     auto left_camera_info = sensor_msgs::msg::CameraInfo();
@@ -20,10 +25,16 @@ int main(int argc, char **argv)
 
     if(left_camera_info_received && right_camera_info_received){
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Camera info received");
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Left info topic: %s", left_info_topic.c_str());
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Right info topic: %s", right_info_topic.c_str());
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Right Projection Matrix P[3] value: %f", right_camera_info.p[3]);
     }
     else
+    {
         RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "No camera info provided");
-
+        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Left info topic: %s", left_info_topic.c_str());
+        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Right info topic: %s", right_info_topic.c_str());
+    }
 
     auto node = std::make_shared<DisparityNode>(left_camera_info, right_camera_info);
 

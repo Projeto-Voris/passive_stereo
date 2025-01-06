@@ -43,7 +43,7 @@ def generate_launch_description():
             executable='triangulation_rgb',
             name='triangulation_rgb',
             remappings=[
-                ('/disparity/disparity_image', LaunchConfig('passive_stereo')),
+                ('/disparity/disparity_image', LaunchConfig('disparity')),
                 ('/left/image_raw', LaunchConfig('left_image')),
                 ('/left/camera_info', LaunchConfig('left_info'))
             ]

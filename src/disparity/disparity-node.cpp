@@ -51,7 +51,7 @@ DisparityNode::DisparityNode(sensor_msgs::msg::CameraInfo infoL, sensor_msgs::ms
     right_sub = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image> >(this, right_image_topic);
 
 
-    //CalculateRectificationRemaps();
+    CalculateRectificationRemaps();
 
     syncApproximate = std::make_shared<message_filters::Synchronizer<approximate_sync_policy> >(
         approximate_sync_policy(10), *left_sub, *right_sub);
@@ -61,7 +61,9 @@ DisparityNode::DisparityNode(sensor_msgs::msg::CameraInfo infoL, sensor_msgs::ms
     params_sub = create_subscription<std_msgs::msg::Int16MultiArray>(params_topic, 10,
                                                                      std::bind(&DisparityNode::UpdateParameters, this,
                                                                                _1));
-    baseline = right_camera_info.p[3] / right_camera_info.k[0];
+    baseline = right_camera_info.p[3];
+
+
     focal_length = left_camera_info.k[0];
 
     disparity_publisher = this->create_publisher<stereo_msgs::msg::DisparityImage>("disparity_image", 10);
@@ -81,23 +83,26 @@ void DisparityNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const Ima
 
     auto imgmsg = sensor_msgs::msg::Image();
     auto dispmsg = stereo_msgs::msg::DisparityImage();
-    cv::Mat rectImgL, rectImgR;
+    cv::Mat imgL, imgR;
     if(msgLeft->encoding == msgRight->encoding && msgLeft->encoding == "mono8") {
         // RCLCPP_ERROR(this->get_logger(), "mono8 encoding");
-        rectImgL = cv_ptrLeft->image;
-        rectImgR = cv_ptrRight->image;
+        // rectImgL = cv_ptrLeft->image;
+        // rectImgR = cv_ptrRight->image; 
+        imgL = cv_ptrLeft->image;
+        imgR = cv_ptrRight->image;
     }
     else {
-        cv::cvtColor(cv_ptrLeft->image, rectImgL,  cv::COLOR_BGR2GRAY);
-        cv::cvtColor(cv_ptrRight->image, rectImgR,  cv::COLOR_BGR2GRAY);
+        cv::cvtColor(cv_ptrLeft->image, imgL,  cv::COLOR_BGR2GRAY);
+        cv::cvtColor(cv_ptrRight->image, imgR,  cv::COLOR_BGR2GRAY);
     }
     cv::Mat disp, disparity, raw_right_disparity_map, right_disparity;
     cv::Mat filtered_disparity_map, filtered_disparity_map_16u;
 
-    //RectifyImages(imgL, imgR);
+    RectifyImages(imgL, imgR);
     // cv::Mat rectImgL = cv_ptrLeft->image;
     // cv::Mat rectImgR = cv_ptrRight->image;
-
+    // RCLCPP_INFO(this->get_logger(), "Rect L resolution: width=%d, height=%d", rectImgL.cols, rectImgL.rows);
+    // RCLCPP_INFO(this->get_logger(), "Rect R resolution: width=%d, height=%d", rectImgR.cols, rectImgR.rows);
 
     stereo->compute(rectImgL, rectImgR, disp);
     disp.convertTo(disparity,CV_32FC1);
@@ -106,15 +111,12 @@ void DisparityNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const Ima
     right_matcher->compute(rectImgR, rectImgL, raw_right_disparity_map);
 
 
-    wls_filter->filter(disp,
-                       rectImgL,
-                       filtered_disparity_map,
-                       raw_right_disparity_map);
+    wls_filter->filter(disp, rectImgL, filtered_disparity_map, raw_right_disparity_map);
 
-    raw_right_disparity_map.convertTo(right_disparity, CV_32FC1, 1);
+    // raw_right_disparity_map.convertTo(right_disparity, CV_32FC1, 1);
     filtered_disparity_map.convertTo(filtered_disparity_map_16u, CV_32FC1);
 
-    cv_bridge::CvImage(std_msgs::msg::Header(), "32FC1", disparity).toImageMsg(imgmsg);
+    cv_bridge::CvImage(std_msgs::msg::Header(), "32FC1", filtered_disparity_map_16u).toImageMsg(imgmsg);
 
     dispmsg.header = std_msgs::msg::Header();
     // dispmsg.header.stamp = this->get_clock()->now();
@@ -210,21 +212,21 @@ void DisparityNode::CalculateRectificationRemaps() {
     siz.width = left_camera_info.width;
     siz.height = left_camera_info.height;
 
-    rotation.at<double>(0, 0) = left_camera_info.r[0];
-    rotation.at<double>(0, 1) = left_camera_info.r[1];
-    rotation.at<double>(0, 2) = left_camera_info.r[2];
-    rotation.at<double>(1, 0) = left_camera_info.r[3];
-    rotation.at<double>(1, 1) = left_camera_info.r[4];
-    rotation.at<double>(1, 2) = left_camera_info.r[5];
-    rotation.at<double>(2, 0) = left_camera_info.r[6];
-    rotation.at<double>(2, 1) = left_camera_info.r[7];
-    rotation.at<double>(2, 2) = left_camera_info.r[8];
+    rotation.at<double>(0, 0) = right_camera_info.p[0];
+    rotation.at<double>(0, 1) = right_camera_info.p[1];
+    rotation.at<double>(0, 2) = right_camera_info.p[2];
+    rotation.at<double>(1, 0) = right_camera_info.p[4];
+    rotation.at<double>(1, 1) = right_camera_info.p[5];
+    rotation.at<double>(1, 2) = right_camera_info.p[6];
+    rotation.at<double>(2, 0) = right_camera_info.p[8];
+    rotation.at<double>(2, 1) = right_camera_info.p[9];
+    rotation.at<double>(2, 2) = right_camera_info.p[10];
 
     baseline = right_camera_info.p[3];
 
-    translation.at<double>(0) = left_camera_info.p[3];
-    translation.at<double>(1) = left_camera_info.p[7];
-    translation.at<double>(2) = left_camera_info.p[11];
+    translation.at<double>(0) = right_camera_info.p[3];
+    translation.at<double>(1) = right_camera_info.p[7];
+    translation.at<double>(2) = right_camera_info.p[11];
 
     RCLCPP_INFO(this->get_logger(), "Baseline: %f", baseline);
     cv::stereoRectify(intrinsics_left, dist_coeffs_left, intrinsics_right, dist_coeffs_right, siz, rotation,

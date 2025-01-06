@@ -16,14 +16,10 @@ TriangulationNode::TriangulationNode(sensor_msgs::msg::CameraInfo camera_info): 
     syncApproximate->registerCallback(std::bind(&TriangulationNode::GrabImages, this, std::placeholders::_1,
                                                 std::placeholders::_2));
 
-    baseline_ = camera_info.p[3];
     principal_x_ = camera_info.k[2];
     principal_y_ = camera_info.k[5];
     fx_ = camera_info.k[0];
     fy_ = camera_info.k[4];
-    f_ = (camera_info.k[0] + camera_info.k[4]) / 2;
-
-    RCLCPP_INFO(this->get_logger(), "Baseline: %f", baseline_);
 
     pointcloud_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("pointcloud", 10);
 }
