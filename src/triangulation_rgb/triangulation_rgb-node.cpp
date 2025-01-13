@@ -28,7 +28,7 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
                                    const sensor_msgs::msg::Image::ConstSharedPtr left_msg) {
     // PointCloud2 message
     sensor_msgs::msg::PointCloud2 pointcloudmsg;
-    baseline_ = 10*disp_msg->t;
+    baseline_ = disp_msg->t;
 
     // RCLCPP_INFO(this->get_logger(), "Processing disp at timestamp: %d", disp_msg->header.stamp.sec);
     // RCLCPP_INFO(this->get_logger(), "Processing left at timestamp: %d", left_msg->header.stamp.sec);
