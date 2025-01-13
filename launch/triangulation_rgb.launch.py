@@ -9,13 +9,16 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     return LaunchDescription([
+        LaunchArg('namespace', default_value=['passive_stereo'], description='Namespace of topics'),
         LaunchArg('left_image', default_value=['/stereo_left'], description='stereo left image topic'),
         LaunchArg('right_image', default_value=['/stereo_right'], description='stereo right image topic'),
         LaunchArg('left_info', default_value=['/stereo_left/camera_info'], description='left camera info topic'),
         LaunchArg('right_info', default_value=['/stereo_right/camera_info'], description='right camera info topic'),
-        LaunchArg('disparity', default_value=['/triangulation/disparity_image'], description='disparity topic'),
+        LaunchArg('disparity', default_value=['disparity_image'], description='disparity topic'),
+        LaunchArg('pointcloud', default_value=['pointcloud'], description='disparity topic'),
 
-        LaunchArg('stereo_params', default_value=['/sm2/disparity/stereo_params'],
+
+        LaunchArg('stereo_params', default_value=['/disparity/stereo_params'],
                   description='Stereo params to config disp. topic'),
 
         LaunchArg('yaml_file', default_value=['stereo_rgb_heavy_sim.yaml'],
@@ -24,7 +27,7 @@ def generate_launch_description():
 
         Node(
             package='passive_stereo',
-            # namespace='/sm2/disparity',
+            namespace=LaunchConfig('namespace'),
             executable='disparity',
             name='disparity',
             arguments=[
@@ -41,7 +44,7 @@ def generate_launch_description():
         ),
         Node(
             package='passive_stereo',
-            # namespace='triangulation',
+            namespace=LaunchConfig('namespace'),
             executable='triangulation_rgb',
             name='triangulation_rgb',
             arguments=[
