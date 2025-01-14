@@ -61,7 +61,9 @@ DisparityNode::DisparityNode(sensor_msgs::msg::CameraInfo infoL, sensor_msgs::ms
     params_sub = create_subscription<std_msgs::msg::Int16MultiArray>(params_topic, 10,
                                                                      std::bind(&DisparityNode::UpdateParameters, this,
                                                                                _1));
-    baseline = right_camera_info.p[3];
+    float Tx = right_camera_info.p[3];
+    float fx_ = right_camera_info.p[0];
+    baseline = Tx/(-fx_);
 
 
     focal_length = left_camera_info.k[0];
