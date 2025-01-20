@@ -49,7 +49,7 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
 
     // Set PointCloud2 header
     pointcloudmsg.header.stamp = now();// disp_msg->header.stamp;
-    pointcloudmsg.header.frame_id = "left_camera_link";
+    pointcloudmsg.header.frame_id = "left_camera_frame";
     // pointcloudmsg.width = 1;  // Points per row
     // pointcloudmsg.height = height*width; // Number of rows
     pointcloudmsg.height = height / sampling_factor;
