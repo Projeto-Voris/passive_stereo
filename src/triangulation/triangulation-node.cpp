@@ -64,7 +64,7 @@ void TriangulationNode::GrabImage(const stereo_msgs::msg::DisparityImage::ConstS
         for (int j = 0; j < width; j++) {
             float disparity = cv_ptr_disp->image.at<float>(i, j);
             if (disparity >= 0) {
-                float z = baseline_ * fx_ / disparity;
+                float z = 16*baseline_ * fx_ / disparity;
                 float x = (i - principal_x_) * z / fx_;
                 float y = (j - principal_y_) * z / fy_;
 

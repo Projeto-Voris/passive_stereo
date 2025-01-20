@@ -29,6 +29,7 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
     // PointCloud2 message
     sensor_msgs::msg::PointCloud2 pointcloudmsg;
     baseline_ = disp_msg->t;
+    fx_ = disp_msg->f;
 
     // RCLCPP_INFO(this->get_logger(), "Processing disp at timestamp: %d", disp_msg->header.stamp.sec);
     // RCLCPP_INFO(this->get_logger(), "Processing left at timestamp: %d", left_msg->header.stamp.sec);
@@ -48,7 +49,7 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
 
     // Set PointCloud2 header
     pointcloudmsg.header.stamp = now();// disp_msg->header.stamp;
-    pointcloudmsg.header.frame_id = "left_camera_link";
+    pointcloudmsg.header.frame_id = "left_camera_frame";
     // pointcloudmsg.width = 1;  // Points per row
     // pointcloudmsg.height = height*width; // Number of rows
     pointcloudmsg.height = height / sampling_factor;
@@ -86,7 +87,7 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
             float disparity = disparity_data[i * width + j];
             if (disparity >= 0) {
                 // Compute 3D coordinates from disparity
-                float z = -baseline_ * fx_ / (disparity);
+                float z = 16*baseline_ * fx_ / (disparity);
                 float x = (j - principal_x_) * z / fx_;
                 float y = (i - principal_y_) * z / fy_;
 
