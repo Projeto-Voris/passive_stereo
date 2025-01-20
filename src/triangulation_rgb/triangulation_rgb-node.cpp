@@ -87,7 +87,7 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
             float disparity = disparity_data[i * width + j];
             if (disparity >= 0) {
                 // Compute 3D coordinates from disparity
-                float z = baseline_ * fx_ / (disparity);
+                float z = 16*baseline_ * fx_ / (disparity);
                 float x = (j - principal_x_) * z / fx_;
                 float y = (i - principal_y_) * z / fy_;
 
