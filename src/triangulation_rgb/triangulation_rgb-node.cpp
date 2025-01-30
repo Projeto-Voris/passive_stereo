@@ -4,7 +4,7 @@ using std::placeholders::_1;
 
 TriangulationNode::TriangulationNode(sensor_msgs::msg::CameraInfo camera_info): Node("triangulation_rgb") {
     std::string disparity_image_topic = "disparity_image";
-    std::string left_image_topic = "left/image_raw";
+    std::string left_image_topic = "/left/image_raw";
 
     disparity_sub = std::make_shared<message_filters::Subscriber<stereo_msgs::msg::DisparityImage> >(
         this, disparity_image_topic);
