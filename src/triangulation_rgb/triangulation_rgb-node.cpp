@@ -4,7 +4,8 @@ using std::placeholders::_1;
 
 TriangulationNode::TriangulationNode(sensor_msgs::msg::CameraInfo camera_info): Node("triangulation_rgb") {
     std::string disparity_image_topic = "disparity_image";
-    std::string left_image_topic = "left/image_raw";
+    std::string left_image_topic = "/left/image_raw";
+    this->declare_parameter("frame_id", "left_camera_link");
 
     disparity_sub = std::make_shared<message_filters::Subscriber<stereo_msgs::msg::DisparityImage> >(
         this, disparity_image_topic);
@@ -49,7 +50,7 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
 
     // Set PointCloud2 header
     pointcloudmsg.header.stamp = now();// disp_msg->header.stamp;
-    pointcloudmsg.header.frame_id = "left_camera_frame";
+    pointcloudmsg.header.frame_id =  this->get_parameter("frame_id").as_string();
     // pointcloudmsg.width = 1;  // Points per row
     // pointcloudmsg.height = height*width; // Number of rows
     pointcloudmsg.height = height / sampling_factor;
