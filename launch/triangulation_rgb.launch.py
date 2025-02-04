@@ -24,7 +24,7 @@ def generate_launch_description():
         LaunchArg('yaml_file', default_value=['stereo_rgb_heavy_sim.yaml'],
                   description='YAML file where is stereoBM config'),
 
-        LaunchArg('frame_id', default_value=['left_camera_frame'], description='Pointcloud frame_id')
+        LaunchArg('frame_id', default_value=['left_camera_frame'], description='Pointcloud frame_id'),
         Node(
             package='passive_stereo',
             namespace=LaunchConfig('namespace'),
@@ -40,8 +40,7 @@ def generate_launch_description():
                 ('/left/image_raw', LaunchConfig('left_image')),
                 ('/right/image_raw', LaunchConfig('right_image')),
                 ('/params', LaunchConfig('stereo_params'))
-            ],
-            parameters=[{'frame_id':LaunchConfig('frame_id')}]
+            ]
         ),
         Node(
             package='passive_stereo',
@@ -54,6 +53,7 @@ def generate_launch_description():
             remappings=[
                 ('/disparity/disparity_image', LaunchConfig('disparity')),
                 ('/left/image_raw', LaunchConfig('left_image'))
-            ]
+            ],
+            parameters=[{'frame_id':LaunchConfig('frame_id')}]
         )
     ])
