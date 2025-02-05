@@ -8,6 +8,9 @@
 
 #include <stereo_msgs/msg/disparity_image.hpp>
 
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/point_cloud2_iterator.hpp>
+
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
@@ -42,7 +45,7 @@ class PassiveStereoNode : public rclcpp::Node
         void RectifyImages(cv::Mat imgL, cv::Mat imgR);
         void CalculateRectificationRemaps();
         void UpdateParameters(const std_msgs::msg::Int16MultiArray::ConstSharedPtr params_message);
-        void PublishPointCloud(stereo_msgs::msg::Stereoimage disp_msg, sensor_msgs::msg::Image left_msg);
+        void PublishPointCloud(stereo_msgs::msg::DisparityImage disp_msg, sensor_msgs::msg::Image left_msg);
         void loadYamlfile(const std::string &filename);
 
 
@@ -55,6 +58,10 @@ class PassiveStereoNode : public rclcpp::Node
         cv_bridge::CvImageConstPtr cv_ptrRight;
 
         float focal_length, baseline;
+        float baseline_, principal_x_, principal_y_, fx_, fy_, f_;
+        
+        cv_bridge::CvImagePtr cv_ptr_disp;
+        cv_bridge::CvImageConstPtr cv_ptr_left;
 
         sensor_msgs::msg::CameraInfo left_camera_info;
         sensor_msgs::msg::CameraInfo right_camera_info;
@@ -69,4 +76,6 @@ class PassiveStereoNode : public rclcpp::Node
         rclcpp::Publisher<stereo_msgs::msg::DisparityImage>::SharedPtr disparity_publisher;
         rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr rect_left_publisher;
         rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr rect_right_publisher;
+
+        rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pointcloud_publisher_;
 };

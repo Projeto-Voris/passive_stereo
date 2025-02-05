@@ -1,4 +1,4 @@
-#include "disparity.hpp"
+#include "passive_stereo.hpp"
 
 
 #include<string>
@@ -64,6 +64,10 @@ PassiveStereoNode::PassiveStereoNode(sensor_msgs::msg::CameraInfo infoL, sensor_
     float Tx = right_camera_info.p[3];
     float fx_ = right_camera_info.p[0];
     baseline = Tx/(-fx_);
+    principal_x_ = left_camera_info.k[2];
+    principal_y_ = left_camera_info.k[5];
+    fx_ = left_camera_info.k[0];
+    
 
 
     focal_length = left_camera_info.k[0];
@@ -72,6 +76,7 @@ PassiveStereoNode::PassiveStereoNode(sensor_msgs::msg::CameraInfo infoL, sensor_
 
     rect_left_publisher = this->create_publisher<sensor_msgs::msg::Image>("rect_left_image", 10);
     rect_right_publisher = this->create_publisher<sensor_msgs::msg::Image>("rect_right_image", 10);
+    pointcloud_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("pointcloud", 10);
 }
 
 void PassiveStereoNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const ImageMsg::ConstSharedPtr msgRight) {
@@ -132,23 +137,23 @@ void PassiveStereoNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const
     dispmsg.delta_d = 1;
     disparity_publisher->publish(dispmsg);
 
-    PublishPointCloud(dispmsg, msgLeft);
+    PublishPointCloud(dispmsg, *msgLeft);
 
 }
 
-void PublishPointCloud(stereo_msgs::msg::Stereoimage disp_msg, sensor_msgs::msg::Image left_msg){
-    // PointCloud2 message
+void PassiveStereoNode::PublishPointCloud(stereo_msgs::msg::DisparityImage disp_msg, sensor_msgs::msg::Image left_msg){
+     // PointCloud2 message
     sensor_msgs::msg::PointCloud2 pointcloudmsg;
-    float baseline_ = disp_msg->t;
-    float fx_ = disp_msg->f;
+    baseline_ = disp_msg.t;
+    fx_ = disp_msg.f;
 
-    // RCLCPP_INFO(this->get_logger(), "Processing disp at timestamp: %d", disp_msg->header.stamp.sec);
-    // RCLCPP_INFO(this->get_logger(), "Processing left at timestamp: %d", left_msg->header.stamp.sec);
+    // RCLCPP_INFO(this.get_logger(), "Processing disp at timestamp: %d", disp_msg.header.stamp.sec);
+    // RCLCPP_INFO(this.get_logger(), "Processing left at timestamp: %d", left_msg.header.stamp.sec);
 
     // Convert disparity and left images to OpenCV format
     try {
-        cv_ptr_disp = cv_bridge::toCvCopy(disp_msg->image, sensor_msgs::image_encodings::TYPE_32FC1);
-        cv_ptr_left = cv_bridge::toCvShare(left_msg, sensor_msgs::image_encodings::BGR8);
+        cv_ptr_disp = cv_bridge::toCvCopy(disp_msg.image, sensor_msgs::image_encodings::TYPE_32FC1);
+        cv_ptr_left = cv_bridge::toCvCopy(left_msg, sensor_msgs::image_encodings::BGR8);
     } catch (cv_bridge::Exception &e) {
         RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
         return;
@@ -159,7 +164,7 @@ void PublishPointCloud(stereo_msgs::msg::Stereoimage disp_msg, sensor_msgs::msg:
     int sampling_factor = 5; // Adjust this factor as needed
 
     // Set PointCloud2 header
-    pointcloudmsg.header.stamp = now();// disp_msg->header.stamp;
+    pointcloudmsg.header.stamp = now();// disp_msg.header.stamp;
     pointcloudmsg.header.frame_id =  this->get_parameter("frame_id").as_string();
     // pointcloudmsg.width = 1;  // Points per row
     // pointcloudmsg.height = height*width; // Number of rows
@@ -170,7 +175,7 @@ void PublishPointCloud(stereo_msgs::msg::Stereoimage disp_msg, sensor_msgs::msg:
 
     // Add fields for x, y, z, and optionally rgb based on encoding
     sensor_msgs::PointCloud2Modifier modifier(pointcloudmsg);
-    if (left_msg->encoding == sensor_msgs::image_encodings::BGR8 || left_msg->encoding == sensor_msgs::image_encodings::RGB8) {
+    if (left_msg.encoding == sensor_msgs::image_encodings::BGR8 || left_msg.encoding == sensor_msgs::image_encodings::RGB8) {
         modifier.setPointCloud2Fields(4,
                                       "x", 1, sensor_msgs::msg::PointField::FLOAT32,
                                       "y", 1, sensor_msgs::msg::PointField::FLOAT32,
@@ -209,7 +214,7 @@ void PublishPointCloud(stereo_msgs::msg::Stereoimage disp_msg, sensor_msgs::msg:
                 memcpy(&pointcloudmsg.data[index + 8], &z, sizeof(float));
 
                 // Optionally add RGB if encoding is BGR8 or RGB8
-                if (left_msg->encoding == sensor_msgs::image_encodings::BGR8 || left_msg->encoding == sensor_msgs::image_encodings::RGB8) {
+                if (left_msg.encoding == sensor_msgs::image_encodings::BGR8 || left_msg.encoding == sensor_msgs::image_encodings::RGB8) {
                     cv::Vec3b bgr = cv_ptr_left->image.at<cv::Vec3b>(i, j);
                     uint8_t r = bgr[2], g = bgr[1], b = bgr[0];
                     uint32_t rgb = ((uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b);

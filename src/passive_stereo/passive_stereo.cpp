@@ -1,4 +1,4 @@
-#include "disparity.hpp"
+#include "passive_stereo.hpp"
 
 int main(int argc, char **argv)
 {
