@@ -77,6 +77,8 @@ PassiveStereoNode::PassiveStereoNode(sensor_msgs::msg::CameraInfo infoL, sensor_
     rect_left_publisher = this->create_publisher<sensor_msgs::msg::Image>("rect_left_image", 10);
     rect_right_publisher = this->create_publisher<sensor_msgs::msg::Image>("rect_right_image", 10);
     pointcloud_publisher_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("pointcloud", 10);
+
+    this->declare_parameter("frame_id", "left_camera_link");
 }
 
 void PassiveStereoNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const ImageMsg::ConstSharedPtr msgRight) {

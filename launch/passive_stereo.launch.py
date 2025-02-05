@@ -16,6 +16,7 @@ def generate_launch_description():
         LaunchArg('right_info', default_value=['/stereo_right/camera_info'], description='right camera info topic'),
         LaunchArg('disparity', default_value=['disparity_image'], description='disparity topic'),
         LaunchArg('pointcloud', default_value=['pointcloud'], description='disparity topic'),
+        LaunchArg('frame_id', default_value=['left_camera_frame'], description='Pointcloud frame_id'),
 
 
         LaunchArg('stereo_params', default_value=['/disparity/stereo_params'],
@@ -35,7 +36,7 @@ def generate_launch_description():
                 LaunchConfig('right_info')
                 ],
             parameters=[{'stereo_params_file': PathJoinSubstitution(
-                [FindPackageShare('passive_stereo'), 'cfg', LaunchConfig('yaml_file')])}],
+                [FindPackageShare('passive_stereo'), 'cfg', LaunchConfig('yaml_file')]), 'frame_id':LaunchConfig('frame_id')}],
             remappings=[
                 ('/left/image_raw', LaunchConfig('left_image')),
                 ('/right/image_raw', LaunchConfig('right_image')),
