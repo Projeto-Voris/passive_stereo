@@ -7,15 +7,12 @@ TriangulationNode::TriangulationNode(sensor_msgs::msg::CameraInfo camera_info): 
     std::string left_image_topic = "/left/image_raw";
     this->declare_parameter("frame_id", "left_camera_link");
 
-    disparity_sub = std::make_shared<message_filters::Subscriber<stereo_msgs::msg::DisparityImage> >(
-        this, disparity_image_topic);
+    disparity_sub = std::make_shared<message_filters::Subscriber<stereo_msgs::msg::DisparityImage> >(this, disparity_image_topic);
     left_sub = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image> >(this, left_image_topic);
 
-    syncApproximate = std::make_shared<message_filters::Synchronizer<approximate_sync_policy> >(
-        approximate_sync_policy(50), *disparity_sub, *left_sub);
+    syncApproximate = std::make_shared<message_filters::Synchronizer<approximate_sync_policy> >(approximate_sync_policy(50), *disparity_sub, *left_sub);
 
-    syncApproximate->registerCallback(std::bind(&TriangulationNode::GrabImages, this, std::placeholders::_1,
-                                                std::placeholders::_2));
+    syncApproximate->registerCallback(std::bind(&TriangulationNode::GrabImages, this, std::placeholders::_1,std::placeholders::_2));
 
     principal_x_ = camera_info.k[2];
     principal_y_ = camera_info.k[5];

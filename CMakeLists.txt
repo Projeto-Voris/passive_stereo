@@ -40,6 +40,13 @@ add_executable(triangulation_rgb
 ament_target_dependencies(triangulation_rgb rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(triangulation_rgb ${OpenCV_LIBS})
 
+add_executable(passive_stereo
+        src/passive_stereo/passive_stereo.cpp
+        src/passive_stereo/passive_stereo_node.cpp
+)
+ament_target_dependencies(passive_stereo rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
+target_link_libraries(passive_stereo ${OpenCV_LIBS})
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
@@ -55,6 +62,7 @@ endif()
 install(TARGETS disparity
                 triangulation
                 triangulation_rgb
+                passive_stereo
         DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
