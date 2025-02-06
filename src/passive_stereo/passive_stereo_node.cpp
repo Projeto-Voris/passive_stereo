@@ -62,11 +62,11 @@ PassiveStereoNode::PassiveStereoNode(sensor_msgs::msg::CameraInfo infoL, sensor_
                                                                      std::bind(&PassiveStereoNode::UpdateParameters, this,
                                                                                _1));
     float Tx = right_camera_info.p[3];
-    float fx_ = right_camera_info.p[0];
+    fx_ = left_camera_info.k[0];
     baseline = Tx/(-fx_);
     principal_x_ = left_camera_info.k[2];
     principal_y_ = left_camera_info.k[5];
-    fx_ = left_camera_info.k[0];
+    fy_ = left_camera_info.k[4];
     
 
 
@@ -89,7 +89,6 @@ void PassiveStereoNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const
         RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
         return;
     }
-
     auto imgmsg = sensor_msgs::msg::Image();
     auto dispmsg = stereo_msgs::msg::DisparityImage();
     cv::Mat imgL, imgR;
@@ -128,7 +127,6 @@ void PassiveStereoNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const
     cv_bridge::CvImage(std_msgs::msg::Header(), "32FC1", filtered_disparity_map_16u).toImageMsg(imgmsg);
 
     dispmsg.header = std_msgs::msg::Header();
-    // dispmsg.header.stamp = this->get_clock()->now();
     dispmsg.header.stamp = msgLeft->header.stamp;
     dispmsg.header.frame_id = msgLeft->header.frame_id;
     dispmsg.image = imgmsg;
@@ -146,8 +144,7 @@ void PassiveStereoNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const
 void PassiveStereoNode::PublishPointCloud(stereo_msgs::msg::DisparityImage disp_msg, sensor_msgs::msg::Image left_msg){
      // PointCloud2 message
     sensor_msgs::msg::PointCloud2 pointcloudmsg;
-    baseline_ = disp_msg.t;
-    fx_ = disp_msg.f;
+    // fx_ = disp_msg.f;
 
     // RCLCPP_INFO(this.get_logger(), "Processing disp at timestamp: %d", disp_msg.header.stamp.sec);
     // RCLCPP_INFO(this.get_logger(), "Processing left at timestamp: %d", left_msg.header.stamp.sec);
@@ -199,16 +196,18 @@ void PassiveStereoNode::PublishPointCloud(stereo_msgs::msg::DisparityImage disp_
     pointcloudmsg.data.resize(pointcloudmsg.row_step * pointcloudmsg.height);
     float* disparity_data = (float*)cv_ptr_disp->image.data;
 
+
     // Iterate through disparity map and generate point cloud
+    
     for (int i = 0; i < height; i += sampling_factor) {
         for (int j = 0; j < width; j += sampling_factor) {
             float disparity = disparity_data[i * width + j];
-            if (disparity >= 0) {
+            if (disparity > 0) {
                 // Compute 3D coordinates from disparity
-                float z = 16*baseline_ * fx_ / (disparity);
+                float z = 16* baseline * fx_ / (disparity);
                 float x = (j - principal_x_) * z / fx_;
                 float y = (i - principal_y_) * z / fy_;
-
+                
                 // Copy x, y, z to the point cloud message data
                 int index = (i / sampling_factor * pointcloudmsg.width + j / sampling_factor) * pointcloudmsg.point_step;
                 memcpy(&pointcloudmsg.data[index], &x, sizeof(float));
@@ -226,7 +225,6 @@ void PassiveStereoNode::PublishPointCloud(stereo_msgs::msg::DisparityImage disp_
         }
     }
 
-    // RCLCPP_INFO(this->get_logger(), "Publishing point cloud with width: %d, height: %d", pointcloudmsg.width, pointcloudmsg.height);
     pointcloud_publisher_->publish(pointcloudmsg);
 }
 
@@ -320,8 +318,6 @@ void PassiveStereoNode::CalculateRectificationRemaps() {
     rotation.at<double>(2, 0) = right_camera_info.p[8];
     rotation.at<double>(2, 1) = right_camera_info.p[9];
     rotation.at<double>(2, 2) = right_camera_info.p[10];
-
-    baseline = right_camera_info.p[3];
 
     translation.at<double>(0) = right_camera_info.p[3];
     translation.at<double>(1) = right_camera_info.p[7];
