@@ -29,7 +29,8 @@ def generate_launch_description():
                 PathJoinSubstitution(['/', LaunchConfig('namespace'),LaunchConfig('right_info')])
                 ],
             parameters=[{'stereo_params_file': PathJoinSubstitution(
-                [FindPackageShare('passive_stereo'), 'cfg', LaunchConfig('yaml_file_disp')])}],
+                [FindPackageShare('passive_stereo'), 'cfg', LaunchConfig('yaml_file_disp')]),
+                'publish_rectified': False,}],
             remappings=[
                 ('/left/image_raw', LaunchConfig('left_image')),
                 ('/right/image_raw', LaunchConfig('right_image')),
@@ -45,9 +46,11 @@ def generate_launch_description():
             arguments=[
                 PathJoinSubstitution(['/', LaunchConfig('namespace'),LaunchConfig('left_info')])
             ],
+            parameters=[{'frame_id': '/SM2/left_camera_link'}],
             remappings=[
                 ('disparity_image', 'disparity/image'),
-                ('pointcloud', 'disparity/pointcloud')
+                ('pointcloud', 'disparity/pointcloud'),
+                ('/left/image_raw', LaunchConfig('left_image'))
             ]
         )
     ])

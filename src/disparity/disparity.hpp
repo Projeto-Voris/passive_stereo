@@ -55,6 +55,7 @@ class DisparityNode : public rclcpp::Node
         cv_bridge::CvImageConstPtr cv_ptrRight;
 
         float focal_length, baseline;
+        bool publish_rectified, wls_filter_enabled;
 
         sensor_msgs::msg::CameraInfo left_camera_info;
         sensor_msgs::msg::CameraInfo right_camera_info;

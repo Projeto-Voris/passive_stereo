@@ -46,7 +46,7 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
     int sampling_factor = 5; // Adjust this factor as needed
 
     // Set PointCloud2 header
-    pointcloudmsg.header.stamp = now();// disp_msg->header.stamp;
+    pointcloudmsg.header.stamp = disp_msg->header.stamp;
     pointcloudmsg.header.frame_id =  this->get_parameter("frame_id").as_string();
     // pointcloudmsg.width = 1;  // Points per row
     // pointcloudmsg.height = height*width; // Number of rows
