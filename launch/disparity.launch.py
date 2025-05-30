@@ -20,18 +20,21 @@ def generate_launch_description():
 
         Node(
             package='passive_stereo',
-            namespace='SM2',
+            namespace=LaunchConfig('namespace'),
             executable='disparity',
             name='disparity',
+            arguments=[
+                LaunchConfig('left_info'),
+                LaunchConfig('right_info')
+                ],
             parameters=[{'stereo_params_file': PathJoinSubstitution(
                 [FindPackageShare('passive_stereo'), 'cfg', LaunchConfig('yaml_file')])}],
             remappings=[
                 ('/left/image_raw', LaunchConfig('left_image')),
                 ('/right/image_raw', LaunchConfig('right_image')),
-                ('/left/camera_info', LaunchConfig('left_info')),
-                ('/right/camera_info', LaunchConfig('right_info')),
-                ('/params', LaunchConfig('stereo_params'))
-            ] 
+                ('/params', LaunchConfig('stereo_params')),
+                ('disparity_image', 'disparity/image')
+            ]
         )
 
     ])

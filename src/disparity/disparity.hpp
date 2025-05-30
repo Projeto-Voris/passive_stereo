@@ -23,7 +23,6 @@
 #include "opencv2/core/utility.hpp"
 #include <opencv2/ximgproc/disparity_filter.hpp>
 
-// initialize values for StereoSGBM parameters
 
 
 
@@ -55,7 +54,7 @@ class DisparityNode : public rclcpp::Node
         cv_bridge::CvImageConstPtr cv_ptrRight;
 
         float focal_length, baseline;
-        bool publish_rectified, wls_filter_enabled;
+        bool publish_rectified, wls_filter_enabled, resize_disparity;
 
         sensor_msgs::msg::CameraInfo left_camera_info;
         sensor_msgs::msg::CameraInfo right_camera_info;

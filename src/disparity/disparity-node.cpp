@@ -18,6 +18,8 @@ int speckleWindowSize = 38;
 int disp12MaxDiff = 20;
 float lambda = 8000;
 float sigma = 1.5;
+int P1 = 8*blockSize*blockSize;
+int P2 = 32*blockSize*blockSize;
 
 cv::Ptr<cv::StereoBM> stereo = cv::StereoBM::create();
 cv::Ptr<cv::ximgproc::DisparityWLSFilter> wls_filter = cv::ximgproc::createDisparityWLSFilter(stereo);
@@ -34,10 +36,11 @@ DisparityNode::DisparityNode(sensor_msgs::msg::CameraInfo infoL, sensor_msgs::ms
     this->declare_parameter<std::string>("stereo_params_file", ""); // default is an empty string
     this->declare_parameter<bool>("publish_rectified", false); // default is false
     this->declare_parameter<bool>("wls_filter", false); // default is false
-
-
+    this->declare_parameter<bool>("resize_disparity", false); // default is false
+        
     // Retrieve the YAML file path from the ROS 2 parameter
     std::string stereo_params_file;
+    this->get_parameter("resize_disparity", resize_disparity);
     this->get_parameter("publish_rectified", publish_rectified);
     this->get_parameter("wls_filter", wls_filter_enabled);
     this->get_parameter("stereo_params_file", stereo_params_file);
@@ -81,6 +84,7 @@ DisparityNode::DisparityNode(sensor_msgs::msg::CameraInfo infoL, sensor_msgs::ms
 }
 
 void DisparityNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const ImageMsg::ConstSharedPtr msgRight) {
+    this->get_parameter("resize_disparity", resize_disparity);
     // Get messages of topic and convert to
     try {
         cv_ptrLeft = cv_bridge::toCvShare(msgLeft, msgLeft->encoding);
@@ -99,8 +103,8 @@ void DisparityNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const Ima
         imgR = cv_ptrRight->image;
     }
     else {
-        cv::cvtColor(cv_ptrLeft->image, imgL,  cv::COLOR_BGR2GRAY);
-        cv::cvtColor(cv_ptrRight->image, imgR,  cv::COLOR_BGR2GRAY);
+        cv::cvtColor(cv_ptrLeft->image, imgL,  cv::COLOR_BayerRG2GRAY);
+        cv::cvtColor(cv_ptrRight->image, imgR,  cv::COLOR_BayerRG2GRAY);
     }
     cv::Mat disp, disparity, raw_right_disparity_map, right_disparity;
     
@@ -122,11 +126,20 @@ void DisparityNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const Ima
 
         // raw_right_disparity_map.convertTo(right_disparity, CV_32FC1, 1);
         filtered_disparity_map.convertTo(filtered_disparity_map_16u, CV_32FC1);
-
+        if (resize_disparity) {
+            // Resize the disparity map to visualzie it better
+            cv::resize(filtered_disparity_map_16u, filtered_disparity_map_16u, cv::Size(rectImgL.cols, rectImgL.rows), 0.5, 0.5, cv::INTER_LINEAR);
+        }
         cv_bridge::CvImage(std_msgs::msg::Header(), "32FC1", filtered_disparity_map_16u).toImageMsg(imgmsg);
+        
     }
     else{   
-        cv_bridge::CvImage(std_msgs::msg::Header(), "32FC1", disparity).toImageMsg(imgmsg);
+        if (resize_disparity) {
+            // Resize the disparity map to visualzie it better
+            cv::resize(raw_right_disparity_map, raw_right_disparity_map, cv::Size(rectImgL.cols, rectImgL.rows), 0.5, 0.5, cv::INTER_LINEAR);
+        }
+        cv_bridge::CvImage(std_msgs::msg::Header(), "32FC1", raw_right_disparity_map).toImageMsg(imgmsg);
+        
     }
 
     dispmsg.header = std_msgs::msg::Header();
@@ -144,6 +157,7 @@ void DisparityNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, const Ima
 
 void DisparityNode::UpdateParameters(const std_msgs::msg::Int16MultiArray::ConstSharedPtr params_message) {
     RCLCPP_INFO(this->get_logger(), "Received: %d", params_message->data[0]);
+
     stereo->setPreFilterCap(params_message->data[0]); //1 - 63
     stereo->setPreFilterSize(params_message->data[1]); // 5 - 255 impar
     stereo->setPreFilterType(params_message->data[2]);
@@ -272,6 +286,7 @@ void DisparityNode::loadYamlfile(const std::string& filename) {
     stereo->setSpeckleWindowSize(speckleWindowSize);
     stereo->setDisp12MaxDiff(disp12MaxDiff);
     stereo->setMinDisparity(minDisparity);
+
 
     if (wls_filter_enabled) {
         wls_filter->setLambda(lambda);
