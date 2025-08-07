@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.8)
 project(passive_stereo)
 
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 20)
+endif()
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -12,7 +16,8 @@ find_package(sensor_msgs REQUIRED)
 find_package(stereo_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
-find_package(OpenCV)
+find_package(OpenCV REQUIRED)
+find_package(retinify REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -47,6 +52,10 @@ add_executable(passive_stereo
 ament_target_dependencies(passive_stereo rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(passive_stereo ${OpenCV_LIBS})
 
+add_executable(retinify_disp src/retinity_disp/retinify_disp.cpp src/retinity_disp/retinify-node.cpp)
+ament_target_dependencies(retinify_disp rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
+target_link_libraries(retinify_disp retinify ${OpenCV_LIBS})
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
@@ -63,6 +72,7 @@ install(TARGETS disparity
                 triangulation
                 triangulation_rgb
                 passive_stereo
+                retinify_disp
         DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})

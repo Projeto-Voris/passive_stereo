@@ -29,13 +29,25 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
     baseline_ = disp_msg->t;
     fx_ = disp_msg->f;
 
-    // RCLCPP_INFO(this->get_logger(), "Processing disp at timestamp: %d", disp_msg->header.stamp.sec);
-    // RCLCPP_INFO(this->get_logger(), "Processing left at timestamp: %d", left_msg->header.stamp.sec);
-
     // Convert disparity and left images to OpenCV format
+    cv::Mat image;
     try {
         cv_ptr_disp = cv_bridge::toCvCopy(disp_msg->image, sensor_msgs::image_encodings::TYPE_32FC1);
-        cv_ptr_left = cv_bridge::toCvShare(left_msg, sensor_msgs::image_encodings::BGR8);
+        if (left_msg->encoding == sensor_msgs::image_encodings::BGR8){
+            cv_ptr_left = cv_bridge::toCvShare(left_msg, sensor_msgs::image_encodings::BGR8);
+            image = cv_ptr_left->image;
+        }
+        if (left_msg->encoding == sensor_msgs::image_encodings::BAYER_RGGB8){
+            RCLCPP_INFO(this->get_logger(), "BAYERRG");
+            cv_ptr_left = cv_bridge::toCvShare(left_msg, sensor_msgs::image_encodings::BAYER_RGGB8);
+            cv::cvtColor(cv_ptr_left->image, image, cv::COLOR_BayerRG2BGR);
+
+        }
+        if (left_msg->encoding == sensor_msgs::image_encodings::MONO8){
+            cv_ptr_left = cv_bridge::toCvShare(left_msg, sensor_msgs::image_encodings::MONO8);
+            image = cv_ptr_left->image;
+
+        }
     } catch (cv_bridge::Exception &e) {
         RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
         return;
@@ -43,10 +55,10 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
 
     int width = cv_ptr_disp->image.cols;
     int height = cv_ptr_disp->image.rows;
-    int sampling_factor = 5; // Adjust this factor as needed
+    int sampling_factor = 10; // Adjust this factor as needed
 
     // Set PointCloud2 header
-    pointcloudmsg.header.stamp = now();// disp_msg->header.stamp;
+    pointcloudmsg.header.stamp = disp_msg->header.stamp;
     pointcloudmsg.header.frame_id =  this->get_parameter("frame_id").as_string();
     // pointcloudmsg.width = 1;  // Points per row
     // pointcloudmsg.height = height*width; // Number of rows
@@ -57,7 +69,8 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
 
     // Add fields for x, y, z, and optionally rgb based on encoding
     sensor_msgs::PointCloud2Modifier modifier(pointcloudmsg);
-    if (left_msg->encoding == sensor_msgs::image_encodings::BGR8 || left_msg->encoding == sensor_msgs::image_encodings::RGB8) {
+    if (left_msg->encoding == sensor_msgs::image_encodings::BGR8 || left_msg->encoding == sensor_msgs::image_encodings::RGB8 || left_msg->encoding == sensor_msgs::image_encodings::BAYER_RGGB8) {
+        // RCLCPP_INFO(this->get_logger(), "Pointcloud colored");
         modifier.setPointCloud2Fields(4,
                                       "x", 1, sensor_msgs::msg::PointField::FLOAT32,
                                       "y", 1, sensor_msgs::msg::PointField::FLOAT32,
@@ -65,6 +78,7 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
                                       "rgb", 1, sensor_msgs::msg::PointField::FLOAT32);
         pointcloudmsg.point_step = 16;  // 4 fields * 4 bytes (x, y, z, rgb)
     } else {
+        // RCLCPP_INFO(this->get_logger(), "Pointcloud NOT colored");
         modifier.setPointCloud2Fields(3,
                                       "x", 1, sensor_msgs::msg::PointField::FLOAT32,
                                       "y", 1, sensor_msgs::msg::PointField::FLOAT32,
@@ -83,9 +97,9 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
     for (int i = 0; i < height; i += sampling_factor) {
         for (int j = 0; j < width; j += sampling_factor) {
             float disparity = disparity_data[i * width + j];
-            if (disparity >= 0) {
+            if (disparity >= 10) {
                 // Compute 3D coordinates from disparity
-                float z = 16*baseline_ * fx_ / (disparity);
+                float z = -baseline_ * fx_ / (disparity);
                 float x = (j - principal_x_) * z / fx_;
                 float y = (i - principal_y_) * z / fy_;
 
@@ -96,8 +110,10 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
                 memcpy(&pointcloudmsg.data[index + 8], &z, sizeof(float));
 
                 // Optionally add RGB if encoding is BGR8 or RGB8
-                if (left_msg->encoding == sensor_msgs::image_encodings::BGR8 || left_msg->encoding == sensor_msgs::image_encodings::RGB8) {
-                    cv::Vec3b bgr = cv_ptr_left->image.at<cv::Vec3b>(i, j);
+                if (left_msg->encoding == sensor_msgs::image_encodings::BGR8 || 
+                    left_msg->encoding == sensor_msgs::image_encodings::RGB8 ||
+                    left_msg->encoding == sensor_msgs::image_encodings::BAYER_RGGB8) {
+                    cv::Vec3b bgr = image.at<cv::Vec3b>(i, j);
                     uint8_t r = bgr[2], g = bgr[1], b = bgr[0];
                     uint32_t rgb = ((uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b);
                     memcpy(&pointcloudmsg.data[index + 12], &rgb, sizeof(uint32_t));
@@ -105,8 +121,6 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
             }
         }
     }
-
-    // RCLCPP_INFO(this->get_logger(), "Publishing point cloud with width: %d, height: %d", pointcloudmsg.width, pointcloudmsg.height);
     pointcloud_publisher_->publish(pointcloudmsg);
 }
 

@@ -13,25 +13,18 @@
 #include <message_filters/sync_policies/approximate_time.h>
 
 #include <cv_bridge/cv_bridge.h>
-
-#include<opencv2/core/core.hpp>
 #include<opencv2/opencv.hpp>
-#include <opencv2/calib3d/calib3d.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-#include "opencv2/imgcodecs.hpp"
-#include "opencv2/core/utility.hpp"
-#include <opencv2/ximgproc/disparity_filter.hpp>
+
+#include <retinify/retinify.hpp>
 
 
 
 
 
-class DisparityNode : public rclcpp::Node
+class RetinityDisparityNode : public rclcpp::Node
 {
     public:
-        DisparityNode(sensor_msgs::msg::CameraInfo infoL, sensor_msgs::msg::CameraInfo infoR);
-        void create_trackbars();
+        RetinityDisparityNode(sensor_msgs::msg::CameraInfo infoL, sensor_msgs::msg::CameraInfo infoR);
 
     private:
         using ImageMsg = sensor_msgs::msg::Image;
@@ -40,10 +33,6 @@ class DisparityNode : public rclcpp::Node
         void GrabStereo(const sensor_msgs::msg::Image::ConstSharedPtr msgLeft, const sensor_msgs::msg::Image::ConstSharedPtr msgRight);
         void RectifyImages(cv::Mat imgL, cv::Mat imgR);
         void CalculateRectificationRemaps();
-        void UpdateParameters(const std_msgs::msg::Int16MultiArray::ConstSharedPtr params_message);
-
-        void loadYamlfile(const std::string &filename);
-
 
         cv::Mat left_map1, left_map2;
         cv::Mat right_map1, right_map2;
@@ -54,15 +43,15 @@ class DisparityNode : public rclcpp::Node
         cv_bridge::CvImageConstPtr cv_ptrRight;
 
         float focal_length, baseline;
-        bool publish_rectified, wls_filter_enabled, resize_disparity;
+        bool publish_rectified, resize_input, resize_disparity;
+
+        retinify::tools::StereoMatchingPipeline pipeline;
 
         sensor_msgs::msg::CameraInfo left_camera_info;
         sensor_msgs::msg::CameraInfo right_camera_info;
 
         std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> left_sub;
         std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> right_sub;
-
-        std::shared_ptr<rclcpp::Subscription<std_msgs::msg::Int16MultiArray>> params_sub;
 
         std::shared_ptr<message_filters::Synchronizer<approximate_sync_policy>> syncApproximate;
 
