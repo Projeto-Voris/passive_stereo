@@ -47,12 +47,12 @@ target_link_libraries(triangulation_rgb ${OpenCV_LIBS})
 
 add_executable(passive_stereo
         src/passive_stereo/passive_stereo.cpp
-        src/passive_stereo/passive_stereo_node.cpp
+        src/passive_stereo/passive_stereo-node.cpp
 )
 ament_target_dependencies(passive_stereo rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(passive_stereo ${OpenCV_LIBS})
 
-add_executable(retinify_disp src/retinity_disp/retinify_disp.cpp src/retinity_disp/retinify-node.cpp)
+add_executable(retinify_disp src/retinity_disp/retinify_disp.cpp src/retinity_disp/retinify_disp-node.cpp)
 ament_target_dependencies(retinify_disp rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(retinify_disp retinify ${OpenCV_LIBS})
 

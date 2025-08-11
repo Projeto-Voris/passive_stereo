@@ -31,6 +31,8 @@ class TriangulationNode : public rclcpp::Node
         void GrabImages(const ImageMsg::ConstSharedPtr disp_msg, const sensor_msgs::msg::Image::ConstSharedPtr left_msg);
 
         float baseline_, principal_x_, principal_y_, fx_, fy_, f_;
+        int sampling_factor;
+
 
         cv_bridge::CvImagePtr cv_ptr_disp;
         cv_bridge::CvImageConstPtr cv_ptr_left;

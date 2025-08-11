@@ -18,6 +18,23 @@ def generate_launch_description():
         Node(
             package='passive_stereo',
             namespace=LaunchConfig('namespace'),
+            executable='retinify_disp',
+            name='disparity',
+            arguments=[
+                LaunchConfig('left_info'),
+                LaunchConfig('right_info')
+                ],
+            parameters=[{'publish_rectified': False},
+                        {'debug_image': False}],
+            remappings=[
+                ('left/image_raw', LaunchConfig('left_image')),
+                ('right/image_raw', LaunchConfig('right_image')),
+                ('disparity_image', 'disparity/image')
+            ]
+        ),
+        Node(
+            package='passive_stereo',
+            namespace=LaunchConfig('namespace'),
             executable='triangulation_rgb',
             name='disparity_3D',
             arguments=[

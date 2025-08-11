@@ -1,4 +1,4 @@
-#include "disparity.hpp"
+#include "passive_stereo.hpp"
 
 int main(int argc, char **argv)
 {
@@ -11,8 +11,6 @@ int main(int argc, char **argv)
 
     std::string left_info_topic = argv[1];
     std::string right_info_topic = argv[2];
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Left info topic: %s", left_info_topic.c_str());
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Right info topic: %s", right_info_topic.c_str());
 
     auto right_camera_info = sensor_msgs::msg::CameraInfo();
     auto left_camera_info = sensor_msgs::msg::CameraInfo();
@@ -38,7 +36,7 @@ int main(int argc, char **argv)
         RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Right info topic: %s", right_info_topic.c_str());
     }
 
-    auto node = std::make_shared<DisparityNode>(left_camera_info, right_camera_info);
+    auto node = std::make_shared<PassiveStereoNode>(left_camera_info, right_camera_info);
 
     rclcpp::spin(node);
 

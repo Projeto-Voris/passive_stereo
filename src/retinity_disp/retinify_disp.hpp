@@ -43,7 +43,7 @@ class RetinityDisparityNode : public rclcpp::Node
         cv_bridge::CvImageConstPtr cv_ptrRight;
 
         float focal_length, baseline;
-        bool publish_rectified, resize_input, resize_disparity;
+        bool publish_rectified, debug_image;
 
         retinify::tools::StereoMatchingPipeline pipeline;
 
@@ -58,4 +58,5 @@ class RetinityDisparityNode : public rclcpp::Node
         rclcpp::Publisher<stereo_msgs::msg::DisparityImage>::SharedPtr disparity_publisher;
         rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr rect_left_publisher;
         rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr rect_right_publisher;
+        rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr debug_disp_publisher;
 };
