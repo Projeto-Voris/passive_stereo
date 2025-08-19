@@ -31,7 +31,7 @@ class RetinityDisparityNode : public rclcpp::Node
         typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> approximate_sync_policy;
 
         void GrabStereo(const sensor_msgs::msg::Image::ConstSharedPtr msgLeft, const sensor_msgs::msg::Image::ConstSharedPtr msgRight);
-        void RectifyImages(cv::Mat imgL, cv::Mat imgR);
+        void RectifyImages(cv::Mat imgL, cv::Mat imgR, const sensor_msgs::msg::Image::ConstSharedPtr msgLeft);
         void CalculateRectificationRemaps();
 
         cv::Mat left_map1, left_map2;

@@ -3,7 +3,7 @@
 int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);
-    std::string info_topic = "/left/camera_info";
+    std::string info_topic = (argc > 1) ? argv[1] : "left/camera_info";
 
     auto camera_info = sensor_msgs::msg::CameraInfo();
 
@@ -15,10 +15,13 @@ int main(int argc, char **argv)
 
     if(camera_info_received){
         RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Camera info received");
+        RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Camera info topic: %s", info_topic.c_str());
     }
     else
+    {
         RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "No camera info provided");
-
+        RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Camera info topic: %s", info_topic.c_str());
+    }
     auto node = std::make_shared<TriangulationNode>(camera_info);
 
     rclcpp::spin(node);

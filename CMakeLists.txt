@@ -29,28 +29,12 @@ add_executable(disparity
 ament_target_dependencies(disparity rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(disparity ${OpenCV_LIBS})
 
-
-
 add_executable(triangulation
         src/triangulation/triangulation.cpp
         src/triangulation/triangulation-node.cpp
 )
 ament_target_dependencies(triangulation rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(triangulation ${OpenCV_LIBS})
-
-add_executable(triangulation_rgb
-        src/triangulation_rgb/triangulation_rgb.cpp
-        src/triangulation_rgb/triangulation_rgb-node.cpp
-)
-ament_target_dependencies(triangulation_rgb rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
-target_link_libraries(triangulation_rgb ${OpenCV_LIBS})
-
-add_executable(passive_stereo
-        src/passive_stereo/passive_stereo.cpp
-        src/passive_stereo/passive_stereo-node.cpp
-)
-ament_target_dependencies(passive_stereo rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
-target_link_libraries(passive_stereo ${OpenCV_LIBS})
 
 add_executable(retinify_disp src/retinity_disp/retinify_disp.cpp src/retinity_disp/retinify_disp-node.cpp)
 ament_target_dependencies(retinify_disp rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
@@ -70,8 +54,6 @@ endif()
 
 install(TARGETS disparity
                 triangulation
-                triangulation_rgb
-                passive_stereo
                 retinify_disp
         DESTINATION lib/${PROJECT_NAME})
 

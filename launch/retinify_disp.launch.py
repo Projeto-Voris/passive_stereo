@@ -23,7 +23,8 @@ def generate_launch_description():
                 LaunchConfig('left_info'),
                 LaunchConfig('right_info')
                 ],
-            parameters=[{'publish_rectified': False}],
+            parameters=[{'publish_rectified': False},
+                        {'debug_image': True}],
             remappings=[
                 ('left/image_raw', LaunchConfig('left_image')),
                 ('right/image_raw', LaunchConfig('right_image')),

@@ -12,8 +12,8 @@ def generate_launch_description():
         LaunchArg('namespace', default_value=['Passive'], description='Namespace of topics'),
         LaunchArg('left_image', default_value=['left/image_raw'], description='stereo left image'),
         LaunchArg('right_image', default_value=['right/image_raw'], description='stereo right image'),
-        LaunchArg('left_info', default_value=['left/camera_info'], description='left camera info'),
-        LaunchArg('right_info', default_value=['right/camera_info'], description='right camera info'),
+        LaunchArg('left_info', default_value=['/Passive/left/camera_info'], description='left camera info'),
+        LaunchArg('right_info', default_value=['/Passive/right/camera_info'], description='right camera info'),
 
         Node(
             package='passive_stereo',
@@ -24,7 +24,7 @@ def generate_launch_description():
                 LaunchConfig('left_info'),
                 LaunchConfig('right_info')
                 ],
-            parameters=[{'publish_rectified': False},
+            parameters=[{'publish_rectified': True},
                         {'debug_image': False}],
             remappings=[
                 ('left/image_raw', LaunchConfig('left_image')),
@@ -35,16 +35,17 @@ def generate_launch_description():
         Node(
             package='passive_stereo',
             namespace=LaunchConfig('namespace'),
-            executable='triangulation_rgb',
+            executable='triangulation',
             name='disparity_3D',
             arguments=[
-                PathJoinSubstitution(['/', LaunchConfig('namespace'),LaunchConfig('left_info')])
-            ],
-            parameters=[{'frame_id': '/Passive/left_camera_link'}],
+                LaunchConfig('left_info')
+                ],
+            parameters=[{'frame_id': 'Passive/left_camera_link'},
+                        {'sampling_factor': 4}],
             remappings=[
                 ('disparity_image', 'disparity/image'),
                 ('pointcloud', 'disparity/pointcloud'),
-                ('/left/image_raw', LaunchConfig('left_image'))
+                ('/left/image_raw', 'left/rect_image')
             ]
         )
     ])

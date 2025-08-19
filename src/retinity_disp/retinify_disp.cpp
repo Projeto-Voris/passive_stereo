@@ -16,6 +16,7 @@ RetinityDisparityNode::RetinityDisparityNode(sensor_msgs::msg::CameraInfo infoL,
     // Retrieve the YAML file path from the ROS 2 parameter
     std::string stereo_params_file;
     this->get_parameter("publish_rectified", publish_rectified);
+    this->get_parameter("debug_image", debug_image);
     RCLCPP_INFO(this->get_logger(), "Initalize process");
     // INITIALIZE THE PIPELINE
     pipeline.Initialize();
@@ -40,7 +41,8 @@ RetinityDisparityNode::RetinityDisparityNode(sensor_msgs::msg::CameraInfo infoL,
         rect_right_publisher = this->create_publisher<sensor_msgs::msg::Image>("right/rect_image", 10);
     }
     if (debug_image){
-
+        RCLCPP_INFO(this->get_logger(), "Publishing debug disp image");
+        debug_disp_publisher = this->create_publisher<sensor_msgs::msg::Image>("disparity/debug/image", 10);
     }
 }
 
@@ -74,13 +76,20 @@ void RetinityDisparityNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, c
     }
     cv::Mat disparity;
 
-    RectifyImages(imgL, imgR);
+    RectifyImages(imgL, imgR, msgLeft);
 
     pipeline.Run(rectImgL, rectImgR, disparity);
-
-
     cv_bridge::CvImage(std_msgs::msg::Header(), "32FC1", disparity).toImageMsg(imgmsg);
+    
+    if (debug_image){
+        cv::Mat img_debug;
+        auto debug_msg = sensor_msgs::msg::Image();
+        img_debug = retinify::tools::ColorizeDisparity(disparity, 256);
+        cv::resize(img_debug, img_debug,cv::Size(), 0.5, 0.5, cv::INTER_LINEAR);
+        cv_bridge::CvImage(std_msgs::msg::Header(), "8UC3", disparity).toImageMsg(debug_msg);
+        debug_disp_publisher->publish(debug_msg);
 
+    }
 
     dispmsg.header = std_msgs::msg::Header();
     // dispmsg.header.stamp = this->get_clock()->now();
@@ -88,34 +97,29 @@ void RetinityDisparityNode::GrabStereo(const ImageMsg::ConstSharedPtr msgLeft, c
     dispmsg.header.frame_id = msgLeft->header.frame_id;
     dispmsg.image = imgmsg;
     dispmsg.min_disparity = 0;
-    dispmsg.max_disparity = 1000;
+    dispmsg.max_disparity = 256;
     dispmsg.f = focal_length;
     dispmsg.t = baseline;
     dispmsg.delta_d = 1;
     disparity_publisher->publish(dispmsg);
     // RCLCPP_INFO(this->get_logger(), "Publish disp");
-    if (debug_image){
-        cv::Mat img_debug;
-        auto debug_msg = sensor_msgs::msg::Image();
-        img_debug = retinify::tools::ColorizeDisparity(disparity, 256);
-        cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", img_debug).toImageMsg(debug_msg);
-        debug_disp_publisher->publish(debug_msg);
 
-    }
 }
 
-void RetinityDisparityNode::RectifyImages(cv::Mat imgL, cv::Mat imgR) {
-    cv::remap(imgL, rectImgL, left_map1, left_map2, cv::INTER_LANCZOS4);
-    cv::remap(imgR, rectImgR, right_map1, right_map2, cv::INTER_LANCZOS4);
+void RetinityDisparityNode::RectifyImages(cv::Mat imgL, cv::Mat imgR, const sensor_msgs::msg::Image::ConstSharedPtr msgLeft) {
+    cv::remap(imgL, rectImgL, left_map1, left_map2, cv::INTER_LINEAR);
+    cv::remap(imgR, rectImgR, right_map1, right_map2, cv::INTER_LINEAR);
       
     if (publish_rectified){
         auto leftimgmsg = sensor_msgs::msg::Image();
         auto rightimgmsg = sensor_msgs::msg::Image();
 
-        cv_bridge::CvImage(std_msgs::msg::Header(), "mono8", rectImgL).toImageMsg(leftimgmsg);
+        cv_bridge::CvImage(std_msgs::msg::Header(), "bayer_rggb8", rectImgL).toImageMsg(leftimgmsg);
+        leftimgmsg.header = msgLeft->header;
         rect_left_publisher->publish(leftimgmsg);
 
-        cv_bridge::CvImage(std_msgs::msg::Header(), "mono8", rectImgR).toImageMsg(rightimgmsg);
+        cv_bridge::CvImage(std_msgs::msg::Header(), "bayer_rggb8", rectImgR).toImageMsg(rightimgmsg);
+        rightimgmsg.header = msgLeft->header;
         rect_right_publisher->publish(rightimgmsg);
     }
 }
@@ -131,7 +135,7 @@ void RetinityDisparityNode::CalculateRectificationRemaps() {
 
     cv::Size size;
 
-    focal_length = left_camera_info.k[0];
+    focal_length = left_camera_info.p[0];
 
     cv::Mat(3, 3, CV_64F, left_camera_info.k.data()).copyTo(intrinsics_left);
     cv::Mat(3, 3, CV_64F, right_camera_info.k.data()).copyTo(intrinsics_right);
