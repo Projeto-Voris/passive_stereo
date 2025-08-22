@@ -101,7 +101,7 @@ void TriangulationNode::GrabImages(const ImageMsg::ConstSharedPtr disp_msg,
     for (int i = 0; i < height; i += sampling_factor) {
         for (int j = 0; j < width; j += sampling_factor) {
             float disparity = disparity_data[i * width + j];
-            if (disparity >= 10) {
+            if (disparity >= 30) {
                 float z = -baseline_ * fx_ / (disparity);
                 float x = (j - principal_x_) * z / fx_;
                 float y = (i - principal_y_) * z / fx_;

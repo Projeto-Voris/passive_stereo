@@ -40,6 +40,10 @@ add_executable(retinify_disp src/retinity_disp/retinify_disp.cpp src/retinity_di
 ament_target_dependencies(retinify_disp rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(retinify_disp retinify ${OpenCV_LIBS})
 
+add_executable(passive_stereo src/passive_ipc/passive_ipc-node.cpp src/passive_ipc/retinify_disp_ipc.cpp src/passive_ipc/triangulation_ipc.cpp)
+ament_target_dependencies(passive_stereo rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
+target_link_libraries(passive_stereo retinify ${OpenCV_LIBS})
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
@@ -55,6 +59,7 @@ endif()
 install(TARGETS disparity
                 triangulation
                 retinify_disp
+                passive_stereo
         DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
