@@ -26,7 +26,8 @@ def generate_launch_description():
             parameters=[{'frame_id': 'Passive/left_camera_link'},
                         {'sampling_factor': 6},
                         {'publish_rectified': True},
-                        {'debug_image': False}],
+                        {'debug_image': False},
+                        {'crop_factor': 0.8}],
             remappings=[
                 ('left/image_raw', LaunchConfig('left_image')),
                 ('right/image_raw', LaunchConfig('right_image')),

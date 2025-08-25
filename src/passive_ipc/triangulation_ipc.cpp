@@ -7,6 +7,7 @@ TriangulationNode::TriangulationNode(const sensor_msgs::msg::CameraInfo & camera
 {
     this->declare_parameter("frame_id", "left_camera_link");
     this->declare_parameter<int>("sampling_factor", 4);
+    this->declare_parameter<double>("crop_factor", 1);
 
     frame_id_ = this->get_parameter("frame_id").as_string();
     sampling_factor_ = this->get_parameter("sampling_factor").as_int();
@@ -78,28 +79,38 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
 
     cv_left = cv_bridge::toCvShare(left_shared, left_shared->encoding);
 
-    for (int v = 0; v < height; v += sampling_factor_) {
-        for (int u = 0; u < width; u += sampling_factor_) {
-        float d = D[v*width + u];
-        if (d > 1.0f) {
-            float Z = -baseline_ * fx_ / d;
-            float X = (u - principal_x_) * Z / fx_;
-            float Y = (v - principal_y_) * Z / fy_;
+    double crop_factor = this->get_parameter("crop_factor").as_double();
+    crop_factor = std::clamp(crop_factor, 0.0, 1.0);
 
-            size_t off = buffer.size();
-            buffer.resize(off + cloud->point_step);
+    int crop_width = static_cast<int>(width * crop_factor);
+    int crop_height = static_cast<int>(height * crop_factor);
+    int u0 = (width - crop_width) / 2;
+    int v0 = (height - crop_height) / 2;
+    int u1 = u0 + crop_width;
+    int v1 = v0 + crop_height;
 
-            std::memcpy(&buffer[off + 0],  &X, sizeof(float));
-            std::memcpy(&buffer[off + 4],  &Y, sizeof(float));
-            std::memcpy(&buffer[off + 8],  &Z, sizeof(float));
+    for (int v = v0; v < v1; v += sampling_factor_) {
+        for (int u = u0; u < u1; u += sampling_factor_) {
+            float d = D[v*width + u];
+            if (d > 1.0f) {
+                float Z = -baseline_ * fx_ / d;
+                float X = (u - principal_x_) * Z / fx_;
+                float Y = (v - principal_y_) * Z / fy_;
 
-            // cor BGR8
-            cv::Vec3b bgr = cv_left->image.at<cv::Vec3b>(v, u);
-            uint32_t rgb = (uint32_t(bgr[0]) << 16) | (uint32_t(bgr[1]) << 8) | (uint32_t(bgr[2]));
-            float rgb_float;
-            std::memcpy(&rgb_float, &rgb, sizeof(float));
-            std::memcpy(&buffer[off + 12], &rgb_float, sizeof(float));
-        }
+                size_t off = buffer.size();
+                buffer.resize(off + cloud->point_step);
+
+                std::memcpy(&buffer[off + 0],  &X, sizeof(float));
+                std::memcpy(&buffer[off + 4],  &Y, sizeof(float));
+                std::memcpy(&buffer[off + 8],  &Z, sizeof(float));
+
+                // cor BGR8
+                cv::Vec3b bgr = cv_left->image.at<cv::Vec3b>(v, u);
+                uint32_t rgb = (uint32_t(bgr[0]) << 16) | (uint32_t(bgr[1]) << 8) | (uint32_t(bgr[2]));
+                float rgb_float;
+                std::memcpy(&rgb_float, &rgb, sizeof(float));
+                std::memcpy(&buffer[off + 12], &rgb_float, sizeof(float));
+            }
         }
     }
 
