@@ -44,6 +44,7 @@ class RetinifyDisparityNode : public rclcpp::Node {
 
         sensor_msgs::msg::CameraInfo left_camera_info;
         sensor_msgs::msg::CameraInfo right_camera_info;
+        rclcpp::Time current_frame_time_;
 
         // Pub
         rclcpp::Publisher<DisparityMsg>::SharedPtr pub_disp_;
@@ -53,5 +54,6 @@ class RetinifyDisparityNode : public rclcpp::Node {
 
         // Calibração
         double focal_length_ {0.0};
-        double baseline_ {0.0};
+    double baseline_ {0.0};
+
 };

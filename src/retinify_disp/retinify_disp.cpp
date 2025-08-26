@@ -52,7 +52,8 @@ void RetinifyDisparityNode::grabStereo(const ImageMsg::ConstSharedPtr msgLeft, c
 
     RectifyImages(cv_ptrLeft->image.clone(), cv_ptrRight->image.clone(), msgLeft, msgRight);
     cv::Mat disparity;
-
+    
+    current_frame_time_ = this->get_clock()->now();
     pipeline.Run(rectImgL, rectImgR, disparity);
     // Cria DisparityImage usando unique_ptr (zero-copy)
     if (debug_image){
@@ -67,10 +68,9 @@ void RetinifyDisparityNode::grabStereo(const ImageMsg::ConstSharedPtr msgLeft, c
 
     }
     auto disp_msg = std::make_unique<stereo_msgs::msg::DisparityImage>();
-    
     // Converte disparity em sensor_msgs::Image
     disp_msg->header = msgLeft->header;
-    disp_msg->header.stamp = this->get_clock()->now();
+    disp_msg->header.stamp = current_frame_time_;
     cv_bridge::CvImage cv_disp(disp_msg->header, sensor_msgs::image_encodings::TYPE_32FC1, disparity);
     
     disp_msg->image = *cv_disp.toImageMsg();
@@ -107,13 +107,16 @@ void RetinifyDisparityNode::RectifyImages(cv::Mat imgL, cv::Mat imgR, const sens
     if (publish_rectified) {
         auto leftimgmsg = sensor_msgs::msg::Image();
         auto rightimgmsg = sensor_msgs::msg::Image();
-
-        cv_bridge::CvImage(msgLeft->header,
+        leftimgmsg.header = msgLeft->header;
+        leftimgmsg.header.stamp = current_frame_time_;
+        rightimgmsg.header = msgRight->header;
+        rightimgmsg.header.stamp = current_frame_time_;
+        cv_bridge::CvImage(leftimgmsg.header,
                            sensor_msgs::image_encodings::RGB8,
                            rectImgL).toImageMsg(leftimgmsg);
         rect_left_publisher->publish(leftimgmsg);
 
-        cv_bridge::CvImage(msgRight->header,
+        cv_bridge::CvImage(rightimgmsg.header,
                            sensor_msgs::image_encodings::RGB8,
                            rectImgR).toImageMsg(rightimgmsg);
         rect_right_publisher->publish(rightimgmsg);

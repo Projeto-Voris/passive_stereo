@@ -62,13 +62,12 @@ Runs Retinify disparity estimation.
 
 | Parameter                   | Description                                    | Value    |
 |----------------------------|------------------------------------------------|----------|
-| `publish_rectified`             | Publish rectified images                       | `True`   |
-| `debug_image`   | Publish debug disparity image                  | `0.12`   |
-| `m_occupancy_max_thresh`   | Maximum occupancy threshold                    | `0.97`   |
+| `publish_rectified`        | Publish rectified images                       | `True`   |
+| `debug_image`              | Publish debug disparity image                  | `False`   |
 
 ---
 
-### `disp_to_pointcloud`
+### `Triangulation`
 
 Converts disparity to colored point cloud from left rectified image.
 
@@ -86,8 +85,9 @@ Converts disparity to colored point cloud from left rectified image.
 
 | Parameter                   | Description                                    | Value    |
 |----------------------------|------------------------------------------------|----------|
-| `sampling_factor`   | Publish debug disparity image                  | `0.8`   |
-| `crop_factor`   | Maximum occupancy threshold                    | `0.9`   |
+| `frame_id`   | Pointcloud frame ID                                          | `left_camera_link`   |
+| `sampling_factor`   | Publish debug disparity image                         | `0.8`   |
+| `crop_factor`   | Maximum occupancy threshold                               | `0.9`   |
 
 ---
 
@@ -97,7 +97,7 @@ Converts disparity to colored point cloud from left rectified image.
 2. Run:
 
    ```bash
-   ros2 launch passive_stereo stereo.launch.py
+   ros2 launch passive_stereo passive_stereo.launch.py
    ```
 
 ## License

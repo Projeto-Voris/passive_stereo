@@ -35,6 +35,7 @@ void TriangulationNode::set_left(std::unique_ptr<const sensor_msgs::msg::Image> 
 {
     // guarda última imagem esquerda (cor) para usar no próximo disparity
     last_left_ = std::move(msg);
+    // RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 100, "left stamp: %u.%u", last_left_->header.stamp.sec, last_left_->header.stamp.nanosec);
 }
 
 void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityImage> disp_msg)
@@ -43,6 +44,8 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Sem imagem esquerda para colorir pointcloud");
         return;
     }
+    // RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 100, "Disp stamp: %u.%u", disp_msg->header.stamp.sec, disp_msg->header.stamp.nanosec);
+
     sampling_factor_ = this->get_parameter("sampling_factor").as_double();
 
 

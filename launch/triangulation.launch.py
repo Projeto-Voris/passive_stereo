@@ -16,31 +16,6 @@ def generate_launch_description():
         LaunchArg('left_info', default_value=['left/camera_info'], description='left camera info'),
         LaunchArg('right_info', default_value=['right/camera_info'], description='right camera info'),
 
-        # Node(
-        #     package='passive_stereo',
-        #     namespace=LaunchConfig('namespace'),
-        #     executable='retinify_disp',
-        #     name='disparity',
-        #     arguments=[
-        #         PathJoinSubstitution([
-        #             TextSubstitution(text='/'),
-        #             LaunchConfig('namespace'),
-        #             LaunchConfig('left_info')
-        #         ]),
-        #         PathJoinSubstitution([
-        #             TextSubstitution(text='/'),
-        #             LaunchConfig('namespace'),
-        #             LaunchConfig('right_info')
-        #         ]),
-        #     ],
-        #     parameters=[{'publish_rectified': True},
-        #                 {'debug_image': False}],
-        #     remappings=[
-        #         ('left/image_raw', LaunchConfig('left_image')),
-        #         ('right/image_raw', LaunchConfig('right_image')),
-        #         ('disparity_image', 'disparity/image')
-        #     ]
-        # ),
         Node(
             package='passive_stereo',
             namespace=LaunchConfig('namespace'),
@@ -50,11 +25,12 @@ def generate_launch_description():
                 PathJoinSubstitution([
                     TextSubstitution(text='/'),
                     LaunchConfig('namespace'),
-                    LaunchConfig('right_info')
+                    LaunchConfig('left_info')
                 ]),
             ],
             parameters=[{'frame_id': 'Passive/left_camera_link'},
-                        {'sampling_factor': 0.5}], # downsample the image for faster processing in PCL (%)],
+                        {'sampling_factor': 0.5},# downsample the image for faster processing in PCL (%)],
+                        {'crop_factor': 0.8}], # crop the image from center (%)
             remappings=[
                 ('disparity/image', 'disparity/image'),
                 ('pointcloud', 'disparity/pointcloud'),

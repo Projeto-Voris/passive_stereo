@@ -35,7 +35,7 @@ def generate_launch_description():
             parameters=[{'frame_id': 'SM2/left_camera_link'},
                         {'sampling_factor': 0.5}, # downsample the image for faster processing in PCL (%)
                         {'publish_rectified': True}, # publish rectified image
-                        {'debug_image': True}, # publish disparity image for debug as image msg
+                        {'debug_image': False}, # publish disparity image for debug as image msg
                         {'crop_factor': 0.8}], # crop the image from center (%)
             remappings=[
                 ('left/image_raw', LaunchConfig('left_image')),
