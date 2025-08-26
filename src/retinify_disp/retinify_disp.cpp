@@ -1,4 +1,4 @@
-#include "retinify_disp_ipc.hpp"
+#include "retinify_disp.hpp"
 #include <cv_bridge/cv_bridge.h>
 
 RetinifyDisparityNode::RetinifyDisparityNode(sensor_msgs::msg::CameraInfo infoL, sensor_msgs::msg::CameraInfo infoR)

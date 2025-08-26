@@ -1,6 +1,6 @@
+#include "retinify_disp.hpp"
+#include "triangulation.hpp"
 #include <rclcpp/rclcpp.hpp>
-#include "retinify_disp_ipc.hpp"
-#include "triangulation_ipc.hpp"
 #include <rclcpp/wait_for_message.hpp>
 
 int main(int argc, char **argv) {

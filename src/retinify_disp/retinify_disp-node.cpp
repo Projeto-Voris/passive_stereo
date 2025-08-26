@@ -1,4 +1,6 @@
 #include "retinify_disp.hpp"
+#include <rclcpp/rclcpp.hpp>
+#include <rclcpp/wait_for_message.hpp>
 
 int main(int argc, char **argv)
 {
@@ -37,7 +39,7 @@ int main(int argc, char **argv)
         RCLCPP_ERROR(rclcpp::get_logger("rclcpp"), "Right info topic: %s", right_info_topic.c_str());
     }
 
-    auto node = std::make_shared<RetinityDisparityNode>(left_camera_info, right_camera_info);
+    auto node = std::make_shared<RetinifyDisparityNode>(left_camera_info, right_camera_info);
 
     rclcpp::spin(node);
 

@@ -18,17 +18,12 @@ find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(retinify REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
 
-# add_executable(disparity
-#         src/disparity/disparity.cpp
-#         src/disparity/disparity-node.cpp
-# )
-# ament_target_dependencies(disparity rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
-# target_link_libraries(disparity ${OpenCV_LIBS})
 
+include_directories(include)
+link_directories(
+  include
+)
 add_executable(triangulation
         src/triangulation/triangulation.cpp
         src/triangulation/triangulation-node.cpp
@@ -36,11 +31,11 @@ add_executable(triangulation
 ament_target_dependencies(triangulation rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(triangulation ${OpenCV_LIBS})
 
-add_executable(retinify_disp src/retinity_disp/retinify_disp.cpp src/retinity_disp/retinify_disp-node.cpp)
+add_executable(retinify_disp src/retinify_disp/retinify_disp.cpp src/retinify_disp/retinify_disp-node.cpp)
 ament_target_dependencies(retinify_disp rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(retinify_disp retinify ${OpenCV_LIBS})
 
-add_executable(passive_stereo src/passive_ipc/passive_ipc-node.cpp src/passive_ipc/retinify_disp_ipc.cpp src/passive_ipc/triangulation_ipc.cpp)
+add_executable(passive_stereo src/passive_ipc/passive_ipc-node.cpp src/retinify_disp/retinify_disp.cpp src/triangulation/triangulation.cpp)
 ament_target_dependencies(passive_stereo rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(passive_stereo retinify ${OpenCV_LIBS})
 target_compile_options(passive_stereo PRIVATE -Wunused-result)

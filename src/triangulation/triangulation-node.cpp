@@ -1,4 +1,6 @@
 #include "triangulation.hpp"
+#include <rclcpp/rclcpp.hpp>
+#include <rclcpp/wait_for_message.hpp>
 
 int main(int argc, char **argv)
 {
