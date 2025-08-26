@@ -39,5 +39,5 @@ private:
   std::string frame_id_{"left_camera_link"};
 
   // Parâmetro de amostragem
-  int sampling_factor_{4};
+  float sampling_factor_{0.5f};
 };

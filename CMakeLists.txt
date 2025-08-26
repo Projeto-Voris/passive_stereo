@@ -22,12 +22,12 @@ find_package(retinify REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
-add_executable(disparity
-        src/disparity/disparity.cpp
-        src/disparity/disparity-node.cpp
-)
-ament_target_dependencies(disparity rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
-target_link_libraries(disparity ${OpenCV_LIBS})
+# add_executable(disparity
+#         src/disparity/disparity.cpp
+#         src/disparity/disparity-node.cpp
+# )
+# ament_target_dependencies(disparity rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
+# target_link_libraries(disparity ${OpenCV_LIBS})
 
 add_executable(triangulation
         src/triangulation/triangulation.cpp
@@ -43,6 +43,7 @@ target_link_libraries(retinify_disp retinify ${OpenCV_LIBS})
 add_executable(passive_stereo src/passive_ipc/passive_ipc-node.cpp src/passive_ipc/retinify_disp_ipc.cpp src/passive_ipc/triangulation_ipc.cpp)
 ament_target_dependencies(passive_stereo rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
 target_link_libraries(passive_stereo retinify ${OpenCV_LIBS})
+target_compile_options(passive_stereo PRIVATE -Wunused-result)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -56,7 +57,7 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-install(TARGETS disparity
+install(TARGETS #disparity
                 triangulation
                 retinify_disp
                 passive_stereo

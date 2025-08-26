@@ -22,7 +22,7 @@ class RetinifyDisparityNode : public rclcpp::Node {
     private:
         void grabStereo(const ImageMsg::ConstSharedPtr msgLeft,
                         const ImageMsg::ConstSharedPtr msgRight);
-        void RectifyImages(cv::Mat imgL, cv::Mat imgR, const sensor_msgs::msg::Image::ConstSharedPtr msgLeft);
+        void RectifyImages(cv::Mat imgL, cv::Mat imgR, const sensor_msgs::msg::Image::ConstSharedPtr msgLeft, const ImageMsg::ConstSharedPtr msgRight);
         void CalculateRectificationRemaps();
 
         // Subs

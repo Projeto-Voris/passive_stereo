@@ -1,10 +1,6 @@
 #include "retinify_disp_ipc.hpp"
 #include <cv_bridge/cv_bridge.h>
 
-
-using std::placeholders::_1;
-using std::placeholders::_2;
-
 RetinifyDisparityNode::RetinifyDisparityNode(sensor_msgs::msg::CameraInfo infoL, sensor_msgs::msg::CameraInfo infoR)
 : Node("retinify_disparity_ipc", rclcpp::NodeOptions().use_intra_process_comms(true))
 {
@@ -29,7 +25,7 @@ RetinifyDisparityNode::RetinifyDisparityNode(sensor_msgs::msg::CameraInfo infoL,
 
     sync_ = std::make_shared<message_filters::Synchronizer<approximate_sync_policy>>(
                 approximate_sync_policy(10), *left_sub_, *right_sub_);
-    sync_->registerCallback(std::bind(&RetinifyDisparityNode::grabStereo, this, _1, _2));
+    sync_->registerCallback(std::bind(&RetinifyDisparityNode::grabStereo, this, std::placeholders::_1, std::placeholders::_2));
 
     // Publisher da disparidade usando IPC (publica unique_ptr)
     pub_disp_ = this->create_publisher<stereo_msgs::msg::DisparityImage>("disparity/image", 10);
@@ -38,7 +34,7 @@ RetinifyDisparityNode::RetinifyDisparityNode(sensor_msgs::msg::CameraInfo infoL,
             rect_right_publisher = this->create_publisher<sensor_msgs::msg::Image>("right/rect_image", 10);
         }
         if (debug_image){
-            RCLCPP_INFO(this->get_logger(), "Publishing debug disp image");
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "Publishing Disparity as Image msg: disparity/debug/image");
             debug_disp_publisher = this->create_publisher<sensor_msgs::msg::Image>("disparity/debug/image", 10);
         }
 }
@@ -54,7 +50,7 @@ void RetinifyDisparityNode::grabStereo(const ImageMsg::ConstSharedPtr msgLeft, c
         return;
     }
 
-    RectifyImages(cv_ptrLeft->image.clone(), cv_ptrRight->image.clone(), msgLeft);
+    RectifyImages(cv_ptrLeft->image.clone(), cv_ptrRight->image.clone(), msgLeft, msgRight);
     cv::Mat disparity;
 
     pipeline.Run(rectImgL, rectImgR, disparity);
@@ -64,7 +60,9 @@ void RetinifyDisparityNode::grabStereo(const ImageMsg::ConstSharedPtr msgLeft, c
         auto debug_msg = sensor_msgs::msg::Image();
         img_debug = retinify::tools::ColorizeDisparity(disparity, 256);
         cv::resize(img_debug, img_debug,cv::Size(), 0.5, 0.5, cv::INTER_LINEAR);
-        cv_bridge::CvImage(std_msgs::msg::Header(), "8UC3", img_debug).toImageMsg(debug_msg);
+        debug_msg.header = msgLeft->header;
+        debug_msg.header.stamp = this->get_clock()->now();
+        cv_bridge::CvImage(debug_msg.header, "8UC3", img_debug).toImageMsg(debug_msg);
         debug_disp_publisher->publish(debug_msg);
 
     }
@@ -72,6 +70,7 @@ void RetinifyDisparityNode::grabStereo(const ImageMsg::ConstSharedPtr msgLeft, c
     
     // Converte disparity em sensor_msgs::Image
     disp_msg->header = msgLeft->header;
+    disp_msg->header.stamp = this->get_clock()->now();
     cv_bridge::CvImage cv_disp(disp_msg->header, sensor_msgs::image_encodings::TYPE_32FC1, disparity);
     
     disp_msg->image = *cv_disp.toImageMsg();
@@ -85,7 +84,7 @@ void RetinifyDisparityNode::grabStereo(const ImageMsg::ConstSharedPtr msgLeft, c
     pub_disp_->publish(std::move(disp_msg));
 }
 
-void RetinifyDisparityNode::RectifyImages(cv::Mat imgL, cv::Mat imgR, const sensor_msgs::msg::Image::ConstSharedPtr msgLeft)
+void RetinifyDisparityNode::RectifyImages(cv::Mat imgL, cv::Mat imgR, const sensor_msgs::msg::Image::ConstSharedPtr msgLeft, const ImageMsg::ConstSharedPtr msgRight)
 {
     cv::Mat imgL_color, imgR_color;
 
@@ -114,7 +113,7 @@ void RetinifyDisparityNode::RectifyImages(cv::Mat imgL, cv::Mat imgR, const sens
                            rectImgL).toImageMsg(leftimgmsg);
         rect_left_publisher->publish(leftimgmsg);
 
-        cv_bridge::CvImage(msgLeft->header,
+        cv_bridge::CvImage(msgRight->header,
                            sensor_msgs::image_encodings::RGB8,
                            rectImgR).toImageMsg(rightimgmsg);
         rect_right_publisher->publish(rightimgmsg);

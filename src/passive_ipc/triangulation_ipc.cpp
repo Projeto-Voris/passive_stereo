@@ -6,11 +6,11 @@ TriangulationNode::TriangulationNode(const sensor_msgs::msg::CameraInfo & camera
 : Node("triangulation_rgb", rclcpp::NodeOptions().use_intra_process_comms(true))
 {
     this->declare_parameter("frame_id", "left_camera_link");
-    this->declare_parameter<int>("sampling_factor", 4);
-    this->declare_parameter<double>("crop_factor", 1);
+    this->declare_parameter("sampling_factor", 0.5);
+    this->declare_parameter("crop_factor", 1.0);
 
     frame_id_ = this->get_parameter("frame_id").as_string();
-    sampling_factor_ = this->get_parameter("sampling_factor").as_int();
+    sampling_factor_ = this->get_parameter("sampling_factor").as_double();
 
     fx_ = camera_info.p[0];
     fy_ = camera_info.p[5];
@@ -43,6 +43,8 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Sem imagem esquerda para colorir pointcloud");
         return;
     }
+    sampling_factor_ = this->get_parameter("sampling_factor").as_double();
+
 
     // baseline e focal do disparity
     baseline_ = disp_msg->t;
@@ -54,6 +56,7 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     // preparar pointcloud
     auto cloud = std::make_unique<sensor_msgs::msg::PointCloud2>();
     cloud->header = disp_msg->header;
+    cloud->header.stamp = this->get_clock()->now();
     cloud->header.frame_id = frame_id_;
 
     sensor_msgs::PointCloud2Modifier modifier(*cloud);
@@ -66,7 +69,11 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     cloud->point_step = 16;
 
     std::vector<uint8_t> buffer;
-    buffer.reserve((width/sampling_factor_)*(height/sampling_factor_)*cloud->point_step);
+    // sampling_factor_ is now a ratio from 0 to 1 (fraction of pixels to sample)
+    sampling_factor_ = std::clamp(sampling_factor_, 0.0f, 1.0f);
+
+    int step = sampling_factor_ > 0.0 ? std::max(1, static_cast<int>(1.0 / sampling_factor_)) : 1;
+    buffer.reserve((width/step)*(height/step)*cloud->point_step);
 
     // acesso direto aos dados do disparity
     const float *D = reinterpret_cast<const float*>(disp_msg->image.data.data());
@@ -89,8 +96,8 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     int u1 = u0 + crop_width;
     int v1 = v0 + crop_height;
 
-    for (int v = v0; v < v1; v += sampling_factor_) {
-        for (int u = u0; u < u1; u += sampling_factor_) {
+    for (int v = v0; v < v1; v += step) {
+        for (int u = u0; u < u1; u += step) {
             float d = D[v*width + u];
             if (d > 1.0f) {
                 float Z = -baseline_ * fx_ / d;
