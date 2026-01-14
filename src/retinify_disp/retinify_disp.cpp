@@ -13,11 +13,17 @@ RetinifyDisparityNode::RetinifyDisparityNode(sensor_msgs::msg::CameraInfo infoL,
     this->get_parameter("publish_rectified", publish_rectified);
     this->get_parameter("debug_image", debug_image);
     RCLCPP_INFO(this->get_logger(), "Initalize process");
-    // INITIALIZE THE PIPELINE
-    pipeline.Initialize();
     
     left_camera_info = infoL;
-    right_camera_info = infoR; 
+    right_camera_info = infoR;
+
+    // INITIALIZE THE PIPELINE
+    auto statusInitialize = pipeline.Initialize(static_cast<std::uint32_t>(left_camera_info.width), 
+                                            static_cast<std::uint32_t>(left_camera_info.height));
+    if (!statusInitialize.IsOK()){
+        RCLCPP_ERROR(this->get_logger(), "RetinifyDisparityNode", "Error initializing Retinify pipeline");
+        return;
+    }                                    
     CalculateRectificationRemaps();
     // Subs das imagens estéreo (mantive message_filters, como no seu código original)
     left_sub_ = std::make_shared<message_filters::Subscriber<ImageMsg>>(this, "left/image_raw");
@@ -45,25 +51,43 @@ void RetinifyDisparityNode::grabStereo(const ImageMsg::ConstSharedPtr msgLeft, c
     try {
         cv_ptrLeft  = cv_bridge::toCvShare(msgLeft, msgLeft->encoding);
         cv_ptrRight = cv_bridge::toCvShare(msgRight, msgRight->encoding);
+
     } catch (cv_bridge::Exception &e) {
         RCLCPP_ERROR(this->get_logger(), "cv_bridge: %s", e.what());
         return;
     }
 
     RectifyImages(cv_ptrLeft->image.clone(), cv_ptrRight->image.clone(), msgLeft, msgRight);
-    cv::Mat disparity;
+    cv::Mat disparity = cv::Mat::zeros(cv_ptrLeft->image.size(), CV_32FC1);
     
     current_frame_time_ = this->get_clock()->now();
-    pipeline.Run(rectImgL, rectImgR, disparity);
-    // Cria DisparityImage usando unique_ptr (zero-copy)
+
+    // Execute Retinify pipeline
+    auto satatusExecute = pipeline.Execute(rectImgL.ptr<std::uint8_t>(), rectImgL.step[0], rectImgR.ptr<std::uint8_t>(), rectImgR.step[0]);
+    if (!satatusExecute.IsOK()){
+        RCLCPP_ERROR(this->get_logger(), "Error executing Retinify pipeline");
+        return;
+    }
+
+    // Get disparity image
+    auto statusRetreive = pipeline.RetrieveDisparity(disparity.ptr<float>(), disparity.step[0]);
+    if (!statusRetreive.IsOK()){
+        RCLCPP_ERROR(this->get_logger(), "Error retrieving disparity image");
+        return;
+    }
+
+    // Construct disparity image if zero-copy debug image publishing is enabled
     if (debug_image){
-        cv::Mat img_debug;
+        cv::Mat disparityColored = cv::Mat(disparity.rows, disparity.cols, CV_8UC3);
         auto debug_msg = sensor_msgs::msg::Image();
-        img_debug = retinify::tools::ColorizeDisparity(disparity, 256);
-        cv::resize(img_debug, img_debug,cv::Size(), 0.5, 0.5, cv::INTER_LINEAR);
+
+        auto statusColorize = retinify::ColorizeDisparity(disparity.ptr<float>(), disparity.step[0], disparityColored.ptr<uint8_t>(), disparityColored.step[0], disparity.cols, disparity.rows, 256.0F);
+        
+        cv::cvtColor(disparityColored, disparityColored, cv::COLOR_RGB2BGR);
+        cv::resize(disparityColored, disparityColored,cv::Size(), 0.5, 0.5, cv::INTER_LINEAR);
         debug_msg.header = msgLeft->header;
         debug_msg.header.stamp = this->get_clock()->now();
-        cv_bridge::CvImage(debug_msg.header, "8UC3", img_debug).toImageMsg(debug_msg);
+        cv_bridge::CvImage(debug_msg.header, "8UC3", disparityColored).toImageMsg(debug_msg);
         debug_disp_publisher->publish(debug_msg);
 
     }
