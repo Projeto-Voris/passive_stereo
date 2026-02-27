@@ -17,50 +17,51 @@ find_package(sensor_msgs REQUIRED)
 find_package(stereo_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(message_filters REQUIRED)
+find_package(image_transport REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(retinify REQUIRED)
 
+# Define ROS dependencies
+set(ROS_DEPENDENCIES
+  rclcpp
+  rclcpp_components
+  sensor_msgs
+  stereo_msgs
+  cv_bridge
+  message_filters
+)
 
 include_directories(include)
 link_directories(
   include
 )
-# add_executable(triangulation
-#         src/triangulation/triangulation.cpp
-#         src/triangulation/triangulation-node.cpp
-# )
-# ament_target_dependencies(triangulation rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
-# target_link_libraries(triangulation ${OpenCV_LIBS})
 
-# add_executable(retinify_disp src/retinify_disp/retinify_disp.cpp src/retinify_disp/retinify_disp-node.cpp)
-# ament_target_dependencies(retinify_disp rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
-# target_link_libraries(retinify_disp retinify ${OpenCV_LIBS})
+# add_executable(disp_node src/retinify_disp-node.cpp src/retinify_disp.cpp)
+# ament_target_dependencies(disp_node rclcpp sensor_msgs stereo_msgs cv_bridge message_filters rclcpp_components)
+# target_link_libraries(disp_node retinify ${OpenCV_LIBS})
 
-# add_executable(passive_stereo src/passive_ipc/passive_ipc-node.cpp src/retinify_disp/retinify_disp.cpp src/triangulation/triangulation.cpp)
-# ament_target_dependencies(passive_stereo rclcpp sensor_msgs stereo_msgs cv_bridge message_filters)
-# target_link_libraries(passive_stereo retinify ${OpenCV_LIBS})
-# target_compile_options(passive_stereo PRIVATE -Wunused-result)
-add_library(retinify_disp SHARED src/retinify_disp/retinify_disp.cpp)
-
-# Dependências ROS 2
-ament_target_dependencies(retinify_disp 
-  rclcpp 
-  rclcpp_components 
-  sensor_msgs 
-  stereo_msgs
-  cv_bridge 
-  message_filters
-  OpenCV
-)
-
-# Linkagem de bibliotecas externas (CRÍTICO: Sem isso dá erro de "undefined symbol" ao rodar)
+add_library(retinify_disp SHARED src/retinify_disp.cpp)
+ament_target_dependencies(retinify_disp rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters OpenCV)
 target_link_libraries(retinify_disp retinify ${OpenCV_LIBS})
-
-# Registro do Plugin
 rclcpp_components_register_node(retinify_disp 
-  PLUGIN "passive_stereo::RetinifyDisparityNode" 
-  EXECUTABLE stereo_slam_node
-)
+  PLUGIN "RetinifyDisparityNode" 
+  EXECUTABLE retinify_disp_node)
+
+add_executable(disp_node src/retinify_disp-node.cpp src/retinify_disp.cpp)
+ament_target_dependencies(disp_node rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters OpenCV)
+target_link_libraries(disp_node retinify ${OpenCV_LIBS})
+
+add_library(disp_pointcloud SHARED src/triangulation.cpp)
+ament_target_dependencies(disp_pointcloud rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters OpenCV)
+target_link_libraries(disp_pointcloud ${OpenCV_LIBS})
+rclcpp_components_register_node(disp_pointcloud 
+  PLUGIN "TriangulationNode" 
+  EXECUTABLE triangulation_node)
+
+  add_executable(triangulation src/triangulation-node.cpp src/triangulation.cpp)
+ament_target_dependencies(triangulation rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters OpenCV)
+target_link_libraries(triangulation ${OpenCV_LIBS})
+
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -74,13 +75,14 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-# install(TARGETS #disparity
-#                 triangulation
-#                 retinify_disp
-#                 passive_stereo
-#         DESTINATION lib/${PROJECT_NAME})
+install(TARGETS
+                triangulation
+                disp_node
+        DESTINATION lib/${PROJECT_NAME})
 
-install(TARGETS retinify_disp
+install(TARGETS 
+        retinify_disp
+        disp_pointcloud
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION bin)  

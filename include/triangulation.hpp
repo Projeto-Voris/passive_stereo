@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp_components/register_node_macro.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <stereo_msgs/msg/disparity_image.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -10,29 +11,31 @@
 
 class TriangulationNode : public rclcpp::Node {
 public:
-  using ImageMsg = sensor_msgs::msg::Image;
-  using DisparityMsg = stereo_msgs::msg::DisparityImage;
 
-  explicit TriangulationNode(const sensor_msgs::msg::CameraInfo & camera_info);
+  explicit TriangulationNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
 private:
   // Callback da disparidade (único ponteiro para IPC)
-  void grab(std::unique_ptr<const DisparityMsg> disp_msg);
+  void grab(std::unique_ptr<const stereo_msgs::msg::DisparityImage> disp_msg);
+  void grabcamInfoRight(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg);
 
   // Callback da imagem esquerda retificada (colorida BGR8)
-  void set_left(std::unique_ptr<const ImageMsg> msg);
+  void set_left(sensor_msgs::msg::Image::SharedPtr msg);
 
   // Subs
-  rclcpp::Subscription<DisparityMsg>::SharedPtr sub_disp_;
-  rclcpp::Subscription<ImageMsg>::SharedPtr sub_left_;
+  rclcpp::Subscription<stereo_msgs::msg::DisparityImage>::SharedPtr sub_disp_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_left_;
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr right_info_sub_;
+
 
   // Pub
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_cloud_;
 
-  // Última imagem esquerda guardada
-  std::unique_ptr<const ImageMsg> last_left_;
+  // Última imagem esquerda guardada (shared to preserve IPC semantics)
+  sensor_msgs::msg::Image::SharedPtr last_left_;
 
   // Intrínsecos
+  bool receive_camera_info_ {false};
   float fx_{0.0f}, fy_{0.0f};
   float principal_x_{0.0f}, principal_y_{0.0f};
   float baseline_{0.0f};

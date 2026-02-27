@@ -24,10 +24,6 @@ private:
     void grabStereo(const sensor_msgs::msg::Image::ConstSharedPtr msgLeft, const sensor_msgs::msg::Image::ConstSharedPtr msgRight);
     void grabcamInfoLeft(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg);
     void grabcamInfoRight(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg);
-    bool retinifyCalibParam();
-    bool CalculateRectificationRemaps();
-    void RectifyImages(const cv::Mat& imgL, const cv::Mat& imgR, const sensor_msgs::msg::Image::ConstSharedPtr msgLeft, const sensor_msgs::msg::Image::ConstSharedPtr msgRight);
-    void publishColoredPointCloud(const std::vector<float> & points, const cv::Mat & color_img, const std_msgs::msg::Header & header);
     // Subscribers
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr left_info_sub_;
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr right_info_sub_;
@@ -37,8 +33,7 @@ private:
     std::shared_ptr<message_filters::Synchronizer<approximate_sync_policy>> sync_;
 
     // Processing state
-    bool publish_rectified_ {false};
-    bool publish_disp {false};
+    bool publish_disp_ {false};
     bool debug_image_ {false};
     bool left_info_received_ {false};
     bool right_info_received_ {false};
@@ -47,18 +42,13 @@ private:
     // Camera Parameters & Maps
     sensor_msgs::msg::CameraInfo left_camera_info_;
     sensor_msgs::msg::CameraInfo right_camera_info_;
-    cv::Mat left_map1, left_map2, right_map1, right_map2;
-    cv::Mat rectImgL, rectImgR;
     double focal_length_ {0.0};
     double baseline_ {0.0};
+    double right_px_ {0.0};
 
     retinify::Pipeline pipeline;
-    retinify::CalibrationParameters calib_;
 
     // Publishers
     rclcpp::Publisher<stereo_msgs::msg::DisparityImage>::SharedPtr pub_disp_;
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr rect_left_publisher;
-    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr rect_right_publisher;
     rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr debug_disp_publisher;
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pc_pub_;
 };

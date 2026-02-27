@@ -1,49 +1,54 @@
 from launch import LaunchDescription
-from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument as LaunchArg
-from launch.actions import ExecuteProcess
-from launch.substitutions import LaunchConfiguration as LaunchConfig
-from launch.substitutions import PathJoinSubstitution
-from launch.substitutions import TextSubstitution
-from launch_ros.substitutions import FindPackageShare
+from launch_ros.actions import ComposableNodeContainer
+from launch_ros.descriptions import ComposableNode
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     
-    return LaunchDescription([
-        LaunchArg('namespace', default_value=['SM2'], description='Namespace of topics'),
-        LaunchArg('left_image', default_value=['left/image_raw'], description='stereo left image'),
-        LaunchArg('right_image', default_value=['right/image_raw'], description='stereo right image'),
-        LaunchArg('left_info', default_value=['left/camera_info'], description='left camera info'),
-        LaunchArg('right_info', default_value=['right/camera_info'], description='right camera info'),
-        Node(
-            package='passive_stereo',
-            namespace=LaunchConfig('namespace'),
-            executable='passive_stereo',
-            name='pasive_stereo',
-            arguments=[
-                PathJoinSubstitution([
-                    TextSubstitution(text='/'),
-                    LaunchConfig('namespace'),
-                    LaunchConfig('left_info')
-                ]),
-                PathJoinSubstitution([
-                    TextSubstitution(text='/'),
-                    LaunchConfig('namespace'),
-                    LaunchConfig('right_info')
-                ]),
-            ],
-            parameters=[{'frame_id': 'SM2/left_camera_link'},
-                        {'sampling_factor': 0.5}, # downsample the image for faster processing in PCL (%)
-                        {'publish_rectified': True}, # publish rectified image
-                        {'debug_image': False}, # publish disparity image for debug as image msg
-                        {'crop_factor': 0.8}], # crop the image from center (%)
-            remappings=[
-                ('left/image_raw', LaunchConfig('left_image')),
-                ('right/image_raw', LaunchConfig('right_image')),
-                ('disparity_image', 'disparity/image'),
-                ('pointcloud', 'disparity/pointcloud'),
-            ],
-        )
-    ])
+    # 1. Define Launch Configurations
+    ns = LaunchConfiguration('namespace')
+    left_img_topic = LaunchConfiguration('left_image')
+    right_img_topic = LaunchConfiguration('right_image')
+    left_info_topic = LaunchConfiguration('left_info')
+    right_info_topic = LaunchConfiguration('right_info')
 
+    # 2. Define the Composable Node (Plugin)
+    # We assign it to a variable first, then put it in the container
+    retinify_node = ComposableNode(
+        package='passive_stereo',
+        plugin='RetinifyDisparityNode', # Ensure this matches your registration macro
+        name='retinify_node',
+        namespace=ns,
+        parameters=[{
+            'publish_rectified': True,
+            'debug_image': True
+        }],
+        remappings=[
+            ('left/image_raw', left_img_topic),
+            ('right/image_raw', right_img_topic),
+            ('left/camera_info', left_info_topic),
+            ('right/camera_info', right_info_topic),
+        ],
+        extra_arguments=[{'use_intra_process_comms': True}]
+    )
+
+    # 3. Create the Container
+    container = ComposableNodeContainer(
+        name='retinify_container',
+        namespace=ns,
+        package='rclcpp_components',
+        executable='component_container_mt',
+        composable_node_descriptions=[retinify_node],
+        output='screen',
+    )
+
+    return LaunchDescription([
+        DeclareLaunchArgument('namespace', default_value='Passive', description='Namespace of topics'),
+        DeclareLaunchArgument('left_image', default_value='left/image_raw', description='stereo left image'),
+        DeclareLaunchArgument('right_image', default_value='right/image_raw', description='stereo right image'),
+        DeclareLaunchArgument('left_info', default_value='left/camera_info', description='left camera info'),
+        DeclareLaunchArgument('right_info', default_value='right/camera_info', description='right camera info'),
+        container
+    ])
 
