@@ -43,13 +43,13 @@ void RetinifyDisparityNode::grabcamInfoLeft(const sensor_msgs::msg::CameraInfo::
     if (left_info_received_) return;
     left_camera_info_ = *msg;
     left_info_received_ = true;
-    focal_length_ = -left_camera_info_.p[0]; // Assuming fx is at p[0]
     RCLCPP_INFO(this->get_logger(), "Left Camera Info received.");
 }
 
 void RetinifyDisparityNode::grabcamInfoRight(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg) {
     if (right_info_received_) return;
     right_camera_info_ = *msg;
+    focal_length_ = right_camera_info_.p[0]; // Assuming fx is at p[0]
     right_px_ = right_camera_info_.p[3]; // Assuming Tx is at p[3]
     right_info_received_ = true;
     RCLCPP_INFO(this->get_logger(), "Right Camera Info received.");
