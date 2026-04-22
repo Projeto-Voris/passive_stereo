@@ -14,16 +14,22 @@ RetinifyDisparityNode::RetinifyDisparityNode(const rclcpp::NodeOptions & options
     debug_qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
     subscribe_qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
 
+    auto disp_cb_group = this->create_callback_group(
+    rclcpp::CallbackGroupType::MutuallyExclusive);
+
+    // 2. Configure as opções de inscrição
+    rclcpp::SubscriptionOptions sub_options;
+    sub_options.callback_group = disp_cb_group;
 
     // 1. Camera Info Subscribers (Needed to build rectification maps)
     left_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
-        "left/camera_info", subscribe_qos_profile, std::bind(&RetinifyDisparityNode::grabcamInfoLeft, this, std::placeholders::_1));
+        "left/camera_info", subscribe_qos_profile, std::bind(&RetinifyDisparityNode::grabcamInfoLeft, this, std::placeholders::_1), sub_options);
     right_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
-        "right/camera_info", subscribe_qos_profile, std::bind(&RetinifyDisparityNode::grabcamInfoRight, this, std::placeholders::_1));
+        "right/camera_info", subscribe_qos_profile, std::bind(&RetinifyDisparityNode::grabcamInfoRight, this, std::placeholders::_1), sub_options);
 
     // 2. Image Subscribers with Synchronization
-    left_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(this, "left/image_rect", subscribe_qos_profile.get_rmw_qos_profile());
-    right_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(this, "right/image_rect", subscribe_qos_profile.get_rmw_qos_profile());
+    left_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(this, "left/image_rect", subscribe_qos_profile.get_rmw_qos_profile(), sub_options);
+    right_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(this, "right/image_rect", subscribe_qos_profile.get_rmw_qos_profile(), sub_options);
 
     sync_ = std::make_shared<message_filters::Synchronizer<approximate_sync_policy>>(
                 approximate_sync_policy(10), *left_sub_, *right_sub_);

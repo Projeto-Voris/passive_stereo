@@ -13,20 +13,29 @@ TriangulationNode::TriangulationNode(const rclcpp::NodeOptions & options)
     sampling_factor_ = this->get_parameter("sampling_factor").as_double();
 
     RCLCPP_INFO(this->get_logger(), "fx: %f, fy: %f, cx: %f, cy: %f", fx_, fy_, principal_x_, principal_y_);
+    rclcpp::QoS qos_pub_profile = rclcpp::SensorDataQoS();
+    qos_pub_profile.keep_last(1);
 
+    auto disp_cb_group = this->create_callback_group(
+    rclcpp::CallbackGroupType::MutuallyExclusive);
+
+    // 2. Configure as opções de inscrição
+    rclcpp::SubscriptionOptions sub_options;
+    sub_options.callback_group = disp_cb_group;
+    
     // Subs diretos (sem message_filters, pois queremos IPC)
     sub_disp_ = this->create_subscription<stereo_msgs::msg::DisparityImage>(
-        "disparity/image", 10,
-        std::bind(&TriangulationNode::grab, this, std::placeholders::_1));
+        "disparity/image", rclcpp::SensorDataQoS(), 
+        std::bind(&TriangulationNode::grab, this, std::placeholders::_1), sub_options);
 
     right_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
-        "right/camera_info", 10,
-        std::bind(&TriangulationNode::grabcamInfoRight, this, std::placeholders::_1));
+        "right/camera_info", rclcpp::SensorDataQoS(),
+        std::bind(&TriangulationNode::grabcamInfoRight, this, std::placeholders::_1), sub_options);
     sub_left_ = this->create_subscription<sensor_msgs::msg::Image>(
-        "left/image_rect", 10,
-        std::bind(&TriangulationNode::set_left, this, std::placeholders::_1));
+        "left/image_rect", rclcpp::SensorDataQoS(),
+        std::bind(&TriangulationNode::set_left, this, std::placeholders::_1), sub_options);
 
-    pub_cloud_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("disparity/pointcloud", 10);
+    pub_cloud_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("disparity/pointcloud", qos_pub_profile);
 }
 
 void TriangulationNode::grabcamInfoRight(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg) {
@@ -96,8 +105,12 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     uint8_t *ptr = cloud->data.data();
     size_t idx = 0;
 
+    int num_channels = cv_left->image.channels();
+
     for (int v = v0; v < v1; v += step) {
-        const cv::Vec3b* row = cv_left->image.ptr<cv::Vec3b>(v);
+        // Lemos a linha como bytes puros (uchar) em vez de forçar Vec3b
+        const uchar* row = cv_left->image.ptr<uchar>(v); 
+        
         for (int u = u0; u < u1; u += step) {
             float d = D[v*width + u];
             if (d > 1.0f) {
@@ -109,8 +122,21 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
                 std::memcpy(ptr + idx + 4, &Y, sizeof(float));
                 std::memcpy(ptr + idx + 8, &Z, sizeof(float));
 
-                const cv::Vec3b &bgr = row[u];
-                uint32_t rgb = (uint32_t(bgr[2]) << 16) | (uint32_t(bgr[1]) << 8) | (uint32_t(bgr[0]));
+                uint32_t rgb = 0;
+                
+                // Tratamento correto de cores com base no número de canais
+                if (num_channels == 1) {
+                    // Escala de cinza: 1 byte por pixel
+                    uint8_t intensity = row[u];
+                    rgb = (uint32_t(intensity) << 16) | (uint32_t(intensity) << 8) | (uint32_t(intensity));
+                } else if (num_channels == 3) {
+                    // Colorida (assumindo BGR): 3 bytes por pixel
+                    uint8_t b = row[u * 3 + 0];
+                    uint8_t g = row[u * 3 + 1];
+                    uint8_t r = row[u * 3 + 2];
+                    rgb = (uint32_t(r) << 16) | (uint32_t(g) << 8) | (uint32_t(b));
+                }
+
                 std::memcpy(ptr + idx + 12, &rgb, sizeof(rgb));
 
                 idx += cloud->point_step;
