@@ -6,13 +6,18 @@ TriangulationNode::TriangulationNode(const rclcpp::NodeOptions & options)
 : Node("triangulation_rgb", options)
 {
     this->declare_parameter("frame_id", "left_camera_link");
+    this->declare_parameter("base_frame", "base_link");
     this->declare_parameter("sampling_factor", 0.5);
     this->declare_parameter("crop_factor", 1.0);
+    this->declare_parameter("max_dist", 10.0);
 
     frame_id_ = this->get_parameter("frame_id").as_string();
+    base_frame_ = this->get_parameter("base_frame").as_string();
     sampling_factor_ = this->get_parameter("sampling_factor").as_double();
 
-    RCLCPP_INFO(this->get_logger(), "fx: %f, fy: %f, cx: %f, cy: %f", fx_, fy_, principal_x_, principal_y_);
+    tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
     rclcpp::QoS qos_pub_profile = rclcpp::SensorDataQoS();
     qos_pub_profile.keep_last(1);
 
@@ -60,7 +65,20 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Sem imagem esquerda para colorir pointcloud");
         return;
     }
-    // RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 100, "Disp stamp: %u.%u", disp_msg->header.stamp.sec, disp_msg->header.stamp.nanosec);
+
+    if (!tf_static_cached_){
+    try {
+            auto tf_base_cam = tf_buffer_->lookupTransform(
+                base_frame_, frame_id_, tf2::TimePointZero);
+            tf2::fromMsg(tf_base_cam.transform, T_base_cam_);
+            tf_static_cached_ = true;
+            RCLCPP_INFO(this->get_logger(), "Static transform [%s -> %s] successfully cached!", base_frame_.c_str(), frame_id_.c_str());
+        } catch (const tf2::TransformException& ex) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
+                "Wait static TF to be available: %s", ex.what());
+            return; // Retorna cedo pois não podemos publicar path/poses corretos sem essa TF
+        }
+    }
 
     // fetch dynamic parameters once per message
     sampling_factor_ = this->get_parameter("sampling_factor").as_double();
@@ -78,7 +96,7 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     auto cloud = std::make_unique<sensor_msgs::msg::PointCloud2>();
     cloud->header = disp_msg->header;
     cloud->header.stamp = this->get_clock()->now();
-    cloud->header.frame_id = frame_id_;
+    cloud->header.frame_id = base_frame_;
 
     sensor_msgs::PointCloud2Modifier modifier(*cloud);
     modifier.setPointCloud2Fields(4,
@@ -118,29 +136,43 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
                 float X = (u - principal_x_) * Z / fx_;
                 float Y = (v - principal_y_) * Z / fy_;
 
-                std::memcpy(ptr + idx, &X, sizeof(float));
-                std::memcpy(ptr + idx + 4, &Y, sizeof(float));
-                std::memcpy(ptr + idx + 8, &Z, sizeof(float));
+                tf2::Vector3 pt_disp(X, Y, Z);
+                tf2::Vector3 pt_disp_ros = tf_cam2ros * pt_disp;
+                tf2::Vector3 pt_base = pt_disp_ros + T_base_cam_.getOrigin();
 
-                uint32_t rgb = 0;
-                
-                // Tratamento correto de cores com base no número de canais
-                if (num_channels == 1) {
-                    // Escala de cinza: 1 byte por pixel
-                    uint8_t intensity = row[u];
-                    rgb = (uint32_t(intensity) << 16) | (uint32_t(intensity) << 8) | (uint32_t(intensity));
-                } else if (num_channels == 3) {
-                    // Colorida (assumindo BGR): 3 bytes por pixel
-                    uint8_t b = row[u * 3 + 0];
-                    uint8_t g = row[u * 3 + 1];
-                    uint8_t r = row[u * 3 + 2];
-                    rgb = (uint32_t(r) << 16) | (uint32_t(g) << 8) | (uint32_t(b));
+                // float dist_sq = pt_base.length2();
+                // float max_dist = this->get_parameter("max_dist").as_double();
+                // float max_dist_sq = (max_dist * max_dist);
+                // if (dist_sq < max_dist_sq){
+
+                    float final_x = pt_base.x();
+                    float final_y = pt_base.y();
+                    float final_z = pt_base.z();
+
+                    std::memcpy(ptr + idx, &final_x, sizeof(float));
+                    std::memcpy(ptr + idx + 4, &final_y, sizeof(float));
+                    std::memcpy(ptr + idx + 8, &final_z, sizeof(float));
+
+                    uint32_t rgb = 0;
+                    
+                    // Tratamento correto de cores com base no número de canais
+                    if (num_channels == 1) {
+                        // Escala de cinza: 1 byte por pixel
+                        uint8_t intensity = row[u];
+                        rgb = (uint32_t(intensity) << 16) | (uint32_t(intensity) << 8) | (uint32_t(intensity));
+                    } else if (num_channels == 3) {
+                        // Colorida (assumindo BGR): 3 bytes por pixel
+                        uint8_t b = row[u * 3 + 0];
+                        uint8_t g = row[u * 3 + 1];
+                        uint8_t r = row[u * 3 + 2];
+                        rgb = (uint32_t(b) << 16) | (uint32_t(g) << 8) | (uint32_t(r));
+                    }
+
+                    std::memcpy(ptr + idx + 12, &rgb, sizeof(rgb));
+
+                    idx += cloud->point_step;
                 }
-
-                std::memcpy(ptr + idx + 12, &rgb, sizeof(rgb));
-
-                idx += cloud->point_step;
-            }
+            // }
         }
     }
 

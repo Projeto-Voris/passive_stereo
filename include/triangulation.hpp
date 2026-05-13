@@ -9,6 +9,13 @@
 #include <opencv2/opencv.hpp>
 #include <cv_bridge/cv_bridge.h>
 
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+
+#include "tf2/LinearMath/Transform.h"
+
+
 class TriangulationNode : public rclcpp::Node {
 public:
 
@@ -34,12 +41,22 @@ private:
   // Última imagem esquerda guardada (shared to preserve IPC semantics)
   sensor_msgs::msg::Image::SharedPtr last_left_;
 
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
   // Intrínsecos
   bool receive_camera_info_ {false};
+  bool tf_static_cached_{false};
   float fx_{0.0f}, fy_{0.0f};
   float principal_x_{0.0f}, principal_y_{0.0f};
   float baseline_{0.0f};
+
   std::string frame_id_{"left_camera_link"};
+  std::string base_frame_{"base_link"};
+  tf2::Transform T_base_cam_;
+  tf2::Matrix3x3 tf_cam2ros ={0.0, 0.0, 1.0,   // row 0
+                              -1.0, 0.0, 0.0,   // row 1
+                                0.0,-1.0, 0.0};  // row 2
 
   // Parâmetro de amostragem
   float sampling_factor_{0.5f};

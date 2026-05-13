@@ -20,6 +20,8 @@ find_package(message_filters REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(retinify REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 # Define ROS dependencies
 set(ROS_DEPENDENCIES
@@ -52,14 +54,14 @@ ament_target_dependencies(disp_node rclcpp rclcpp_components sensor_msgs stereo_
 target_link_libraries(disp_node retinify ${OpenCV_LIBS})
 
 add_library(disp_pointcloud SHARED src/triangulation.cpp)
-ament_target_dependencies(disp_pointcloud rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters OpenCV)
+ament_target_dependencies(disp_pointcloud rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters tf2_ros tf2_geometry_msgs OpenCV)
 target_link_libraries(disp_pointcloud ${OpenCV_LIBS})
 rclcpp_components_register_node(disp_pointcloud 
   PLUGIN "TriangulationNode" 
   EXECUTABLE triangulation_node)
 
   add_executable(triangulation src/triangulation-node.cpp src/triangulation.cpp)
-ament_target_dependencies(triangulation rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters OpenCV)
+ament_target_dependencies(triangulation rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters tf2_ros tf2_geometry_msgs OpenCV)
 target_link_libraries(triangulation ${OpenCV_LIBS})
 
 
