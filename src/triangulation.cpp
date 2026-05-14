@@ -6,13 +6,13 @@ TriangulationNode::TriangulationNode(const rclcpp::NodeOptions & options)
 : Node("triangulation_rgb", options)
 {
     this->declare_parameter("frame_id", "left_camera_link");
-    this->declare_parameter("base_frame", "base_link");
+    this->declare_parameter("parent_frame", "");
     this->declare_parameter("sampling_factor", 0.5);
     this->declare_parameter("crop_factor", 1.0);
     this->declare_parameter("max_dist", 10.0);
 
     frame_id_ = this->get_parameter("frame_id").as_string();
-    base_frame_ = this->get_parameter("base_frame").as_string();
+    parent_frame_ = this->get_parameter("parent_frame").as_string();
     sampling_factor_ = this->get_parameter("sampling_factor").as_double();
 
     tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
@@ -53,11 +53,28 @@ void TriangulationNode::grabcamInfoRight(const sensor_msgs::msg::CameraInfo::Con
     principal_y_ = msg->p[6];
     receive_camera_info_ = true;
     RCLCPP_INFO(this->get_logger(), "Received camera info. fx: %f, fy: %f, cx: %f, cy: %f", fx_, fy_, principal_x_, principal_y_);
+    
 
 }
 void TriangulationNode::set_left(sensor_msgs::msg::Image::SharedPtr msg)
 {
     last_left_ = std::move(msg);
+    this->get_parameter("parent_frame").as_string() != "" ? has_parent_ = true : has_parent_ = false;
+    if(has_parent_){
+        if (!tf_static_cached_){
+            try {
+                    auto tf_base_cam = tf_buffer_->lookupTransform(
+                        parent_frame_, frame_id_, tf2::TimePointZero);
+                    tf2::fromMsg(tf_base_cam.transform, T_base_cam_);
+                    tf_static_cached_ = true;
+                    RCLCPP_INFO(this->get_logger(), "Static transform [%s -> %s] successfully cached!", parent_frame_.c_str(), frame_id_.c_str());
+                } catch (const tf2::TransformException& ex) {
+                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
+                        "Wait static TF to be available: %s", ex.what());
+                    return; // Retorna cedo pois não podemos publicar path/poses corretos sem essa TF
+                }
+            }
+    }
 }
 void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityImage> disp_msg)
 {
@@ -66,19 +83,7 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
         return;
     }
 
-    if (!tf_static_cached_){
-    try {
-            auto tf_base_cam = tf_buffer_->lookupTransform(
-                base_frame_, frame_id_, tf2::TimePointZero);
-            tf2::fromMsg(tf_base_cam.transform, T_base_cam_);
-            tf_static_cached_ = true;
-            RCLCPP_INFO(this->get_logger(), "Static transform [%s -> %s] successfully cached!", base_frame_.c_str(), frame_id_.c_str());
-        } catch (const tf2::TransformException& ex) {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                "Wait static TF to be available: %s", ex.what());
-            return; // Retorna cedo pois não podemos publicar path/poses corretos sem essa TF
-        }
-    }
+    
 
     // fetch dynamic parameters once per message
     sampling_factor_ = this->get_parameter("sampling_factor").as_double();
@@ -96,7 +101,13 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     auto cloud = std::make_unique<sensor_msgs::msg::PointCloud2>();
     cloud->header = disp_msg->header;
     cloud->header.stamp = this->get_clock()->now();
-    cloud->header.frame_id = base_frame_;
+
+    // Check if parent is available to transform points to it.
+    if(has_parent_){
+        cloud->header.frame_id = parent_frame_;
+    } else {    
+        cloud->header.frame_id = frame_id_;
+    }
 
     sensor_msgs::PointCloud2Modifier modifier(*cloud);
     modifier.setPointCloud2Fields(4,
@@ -137,9 +148,14 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
                 float Y = (v - principal_y_) * Z / fy_;
 
                 tf2::Vector3 pt_disp(X, Y, Z);
-                tf2::Vector3 pt_disp_ros = tf_cam2ros * pt_disp;
-                tf2::Vector3 pt_base = pt_disp_ros + T_base_cam_.getOrigin();
+                tf2::Vector3 pt_base;
 
+                if (has_parent_ && tf_static_cached_){
+                    tf2::Vector3 pt_disp_ros = tf_cam2ros * pt_disp;
+                    pt_base = pt_disp_ros + T_base_cam_.getOrigin();
+                }else{
+                    pt_base = pt_disp;
+                }
                 // float dist_sq = pt_base.length2();
                 // float max_dist = this->get_parameter("max_dist").as_double();
                 // float max_dist_sq = (max_dist * max_dist);

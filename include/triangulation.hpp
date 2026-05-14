@@ -47,12 +47,13 @@ private:
   // Intrínsecos
   bool receive_camera_info_ {false};
   bool tf_static_cached_{false};
+  bool has_parent_{false};
   float fx_{0.0f}, fy_{0.0f};
   float principal_x_{0.0f}, principal_y_{0.0f};
   float baseline_{0.0f};
 
   std::string frame_id_{"left_camera_link"};
-  std::string base_frame_{"base_link"};
+  std::string parent_frame_{""};
   tf2::Transform T_base_cam_;
   tf2::Matrix3x3 tf_cam2ros ={0.0, 0.0, 1.0,   // row 0
                               -1.0, 0.0, 0.0,   // row 1
