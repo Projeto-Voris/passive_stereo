@@ -126,14 +126,13 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     int v1 = v0 + crop_height;
 
     const float *D = reinterpret_cast<const float*>(disp_msg->image.data.data());
-    cv_bridge::CvImageConstPtr cv_left = cv_bridge::toCvShare(last_left_, last_left_->encoding);
+    cv_bridge::CvImageConstPtr cv_left = cv_bridge::toCvShare(last_left_, sensor_msgs::image_encodings::BGR8);
 
     // allocate maximum possible size once and write directly
     size_t max_pts = ((crop_width + step - 1) / step) * ((crop_height + step - 1) / step);
     cloud->data.resize(max_pts * cloud->point_step);
     uint8_t *ptr = cloud->data.data();
     size_t idx = 0;
-
     int num_channels = cv_left->image.channels();
 
     for (int v = v0; v < v1; v += step) {
@@ -181,7 +180,7 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
                         uint8_t b = row[u * 3 + 0];
                         uint8_t g = row[u * 3 + 1];
                         uint8_t r = row[u * 3 + 2];
-                        rgb = (uint32_t(b) << 16) | (uint32_t(g) << 8) | (uint32_t(r));
+                        rgb = (uint32_t(r) << 16) | (uint32_t(g) << 8) | (uint32_t(b));
                     }
 
                     std::memcpy(ptr + idx + 12, &rgb, sizeof(rgb));

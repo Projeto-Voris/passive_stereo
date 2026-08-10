@@ -24,6 +24,7 @@ private:
     void grabStereo(const sensor_msgs::msg::Image::ConstSharedPtr msgLeft, const sensor_msgs::msg::Image::ConstSharedPtr msgRight);
     void grabcamInfoLeft(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg);
     void grabcamInfoRight(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg);
+    cv::Mat applyCLAHEtoColor(const cv::Mat& input_bgr);
     // Subscribers
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr left_info_sub_;
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr right_info_sub_;
@@ -46,6 +47,11 @@ private:
     double baseline_ {0.0};
     double right_px_ {0.0};
 
+    cv::Ptr<cv::CLAHE> clahe_ = cv::createCLAHE();
+    bool apply_clahe {false};
+
+    cv::Mat left_img;
+    cv::Mat right_img;
     retinify::Pipeline pipeline;
 
     // Publishers

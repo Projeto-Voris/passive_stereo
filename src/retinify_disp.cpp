@@ -4,8 +4,10 @@ RetinifyDisparityNode::RetinifyDisparityNode(const rclcpp::NodeOptions & options
 {
     this->declare_parameter<bool>("debug_image", true);
     this->declare_parameter<bool>("publish_disp", true);
+    this->declare_parameter<bool>("clahe", true);
     this->get_parameter("publish_disp", publish_disp_);
     this->get_parameter("debug_image", debug_image_);
+    this->get_parameter("clahe", apply_clahe);
 
     rclcpp::QoS debug_qos_profile(2);
     rclcpp::QoS subscribe_qos_profile(5);
@@ -41,6 +43,10 @@ RetinifyDisparityNode::RetinifyDisparityNode(const rclcpp::NodeOptions & options
     }
     if (debug_image_){
         debug_disp_publisher = this->create_publisher<sensor_msgs::msg::CompressedImage>("disparity/debug/image", debug_qos_profile);
+    }
+    if (apply_clahe){
+        clahe_->setClipLimit(5.0);
+        clahe_->setTilesGridSize(cv::Size(5, 5));
     }
     RCLCPP_INFO(this->get_logger(), "Retinify Disparity Node initialized. Waiting for camera info and images...");
 }
@@ -93,18 +99,24 @@ void RetinifyDisparityNode::grabStereo(const sensor_msgs::msg::Image::ConstShare
         // if necessary.  We request RGB8 explicitly.
         cv_ptrLeft  = cv_bridge::toCvCopy(msgLeft, sensor_msgs::image_encodings::RGB8);
         cv_ptrRight = cv_bridge::toCvCopy(msgRight, sensor_msgs::image_encodings::RGB8);
+        left_img = cv_ptrLeft->image;
+        right_img = cv_ptrRight->image;
         RCLCPP_DEBUG(this->get_logger(), "Images converted to RGB8 format for Retinify.");
     }
     catch (cv_bridge::Exception &e) {
         RCLCPP_ERROR(this->get_logger(), "cv_bridge conversion to RGB8 failed: %s", e.what());
         return;
     }
-
+    if(apply_clahe){
+        left_img = applyCLAHEtoColor(left_img);
+        right_img = applyCLAHEtoColor(right_img);
+    }
+    
     // Retinify Execution
-    if (pipeline.Execute(cv_ptrLeft->image.ptr<uint8_t>(), cv_ptrLeft->image.step[0], 
-                         cv_ptrRight->image.ptr<uint8_t>(), cv_ptrRight->image.step[0]).IsOK()) {
+    if (pipeline.Execute(left_img.ptr<uint8_t>(), left_img.step[0], 
+                         right_img.ptr<uint8_t>(), right_img.step[0]).IsOK()) {
         RCLCPP_DEBUG(this->get_logger(), "Retinify pipeline executed successfully.");
-        cv::Mat disparity = cv::Mat::zeros(cv_ptrLeft->image.size(), CV_32FC1);
+        cv::Mat disparity = cv::Mat::zeros(left_img.size(), CV_32FC1);
             // Retinify disparity retrieval
             if (pipeline.RetrieveDisparity(disparity.ptr<float>(), disparity.step[0]).IsOK()) {
                 if(publish_disp_){
@@ -127,7 +139,7 @@ void RetinifyDisparityNode::grabStereo(const sensor_msgs::msg::Image::ConstShare
                     RCLCPP_DEBUG(this->get_logger(), "Colorizing disparity for debug image...");
                     cv::Mat disparityColored(disparity.size(), CV_8UC3);
                     if(retinify::ColorizeDisparity(disparity.ptr<float>(), disparity.step[0], disparityColored.ptr<uint8_t>(), disparityColored.step[0], disparity.cols, disparity.rows, 256.0F).IsOK()) {
-                        cv::resize(disparityColored, disparityColored, cv::Size(), 0.5, 0.5); 
+                        cv::resize(disparityColored, disparityColored, cv::Size(), 0.25, 0.25); 
                         cv::cvtColor(disparityColored, disparityColored, cv::COLOR_RGB2BGR);
 
                     cv_bridge::CvImage debug_img(msgLeft->header, "bgr8", disparityColored);
@@ -164,5 +176,28 @@ void RetinifyDisparityNode::grabStereo(const sensor_msgs::msg::Image::ConstShare
             return;
         }
 }
+
+cv::Mat RetinifyDisparityNode::applyCLAHEtoColor(const cv::Mat& input_bgr)
+    {
+        cv::Mat lab_image;
+        cv::cvtColor(input_bgr, lab_image, cv::COLOR_RGB2Lab);
+
+        // 2. Separar a imagem nos 3 canais (L, A, B)
+        std::vector<cv::Mat> lab_channels(3);
+        cv::split(lab_image, lab_channels);
+
+        // Aplicar o CLAHE exclusivamente no canal L (lab_channels[0])
+        clahe_->apply(lab_channels[0], lab_channels[0]);
+
+        // 4. Juntar os canais modificados de volta em uma única imagem LAB
+        cv::Mat processed_lab;
+        cv::merge(lab_channels, processed_lab);
+
+        // 5. Converter de volta para o padrão BGR
+        cv::Mat output_bgr;
+        cv::cvtColor(processed_lab, output_bgr, cv::COLOR_Lab2RGB);
+
+        return output_bgr;
+    }
 
 RCLCPP_COMPONENTS_REGISTER_NODE(RetinifyDisparityNode)
