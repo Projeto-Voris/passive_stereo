@@ -1,20 +1,23 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import DeclareLaunchArgument as LaunchArg
-from launch.actions import ExecuteProcess
 from launch.substitutions import LaunchConfiguration as LaunchConfig
 from launch.substitutions import PathJoinSubstitution
-from launch_ros.substitutions import FindPackageShare
 from launch.substitutions import TextSubstitution
 
 def generate_launch_description():
     
     return LaunchDescription([
-        LaunchArg('namespace', default_value=['Passive'], description='Namespace of topics'),
-        LaunchArg('left_image', default_value=['left/image_raw'], description='stereo left image'),
-        LaunchArg('right_image', default_value=['right/image_raw'], description='stereo right image'),
-        LaunchArg('left_info', default_value=['left/camera_info'], description='left camera info'),
-        LaunchArg('right_info', default_value=['right/camera_info'], description='right camera info'),
+        LaunchArg('namespace', default_value='Passive', description='Namespace of topics'),
+        LaunchArg('left_image', default_value='left/image_raw', description='stereo left image'),
+        LaunchArg('right_image', default_value='right/image_raw', description='stereo right image'),
+        LaunchArg('left_info', default_value='left/camera_info', description='left camera info'),
+        LaunchArg('right_info', default_value='right/camera_info', description='right camera info'),
+        LaunchArg('use_gpu', default_value='true', description='Enable CUDA GPU acceleration'),
+        LaunchArg('sampling_factor', default_value='0.5', description='Downsample factor (0.0 to 1.0)'),
+        LaunchArg('crop_factor', default_value='0.8', description='Crop factor (0.0 to 1.0)'),
+        LaunchArg('max_dist', default_value='10.0', description='Max distance filter in meters'),
+        LaunchArg('min_disp', default_value='1.0', description='Minimum disparity threshold'),
 
         Node(
             package='passive_stereo',
@@ -28,15 +31,18 @@ def generate_launch_description():
                     LaunchConfig('left_info')
                 ]),
             ],
-            parameters=[{'frame_id': 'Passive/left_camera_link'},
-                        {'sampling_factor': 0.5},# downsample the image for faster processing in PCL (%)],
-                        {'crop_factor': 0.8}], # crop the image from center (%)
+            parameters=[{
+                'frame_id': 'Passive/left_camera_link',
+                'sampling_factor': LaunchConfig('sampling_factor'),
+                'crop_factor': LaunchConfig('crop_factor'),
+                'max_dist': LaunchConfig('max_dist'),
+                'min_disp': LaunchConfig('min_disp'),
+                'use_gpu': LaunchConfig('use_gpu')
+            }],
             remappings=[
                 ('disparity/image', 'disparity/image'),
                 ('pointcloud', 'disparity/pointcloud'),
-                ('left/rect_image', 'left/rect_image')
+                ('left/image_rect', 'left/image_rect')
             ]
         )
     ])
-
-
