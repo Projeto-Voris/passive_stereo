@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cstring>
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 
 TriangulationNode::TriangulationNode(const rclcpp::NodeOptions & options)
@@ -68,7 +70,7 @@ TriangulationNode::TriangulationNode(const rclcpp::NodeOptions & options)
 void TriangulationNode::update_transform_matrix()
 {
     if (has_parent_ && tf_static_cached_) {
-        tf2::Matrix3x3 R_mat = T_base_cam_.getBasis() * tf_cam2ros_;
+        tf2::Matrix3x3 R_mat = T_base_cam_.getBasis();
         tf2::Vector3 T_vec = T_base_cam_.getOrigin();
 
         for (int r = 0; r < 3; ++r) {

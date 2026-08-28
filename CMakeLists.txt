@@ -23,8 +23,15 @@ find_package(retinify REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 
-# Find OpenMP
-find_package(OpenMP REQUIRED)
+# Find OpenMP (optional for portability on minimal Jetson images)
+find_package(OpenMP QUIET)
+if(OpenMP_CXX_FOUND)
+  set(OPENMP_TARGET OpenMP::OpenMP_CXX)
+  message(STATUS "OpenMP found - CPU multi-threading enabled")
+else()
+  set(OPENMP_TARGET "")
+  message(STATUS "OpenMP not found - single-threaded CPU fallback enabled")
+endif()
 
 # Find and enable CUDA
 include(CheckLanguage)
@@ -54,7 +61,11 @@ else()
   message(WARNING "CUDA compiler not found - building with CPU-only mode")
 endif()
 
-include_directories(include)
+include_directories(
+  include
+  ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}
+  /usr/local/cuda/include
+)
 
 # 1. Retinify Disparity Node
 add_library(retinify_disp SHARED src/retinify_disp.cpp)
@@ -63,10 +74,6 @@ target_link_libraries(retinify_disp retinify ${OpenCV_LIBS})
 rclcpp_components_register_node(retinify_disp 
   PLUGIN "RetinifyDisparityNode" 
   EXECUTABLE retinify_disp_node)
-
-add_executable(disp_node src/retinify_disp-node.cpp src/retinify_disp.cpp)
-ament_target_dependencies(disp_node rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters OpenCV)
-target_link_libraries(disp_node retinify ${OpenCV_LIBS})
 
 # 2. Triangulation Node (GPU + CPU)
 if(CUDA_FOUND)
@@ -82,7 +89,7 @@ endif()
 
 add_library(disp_pointcloud SHARED ${TRIANGULATION_SRC})
 ament_target_dependencies(disp_pointcloud rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters tf2_ros tf2_geometry_msgs OpenCV)
-target_link_libraries(disp_pointcloud ${OpenCV_LIBS} OpenMP::OpenMP_CXX)
+target_link_libraries(disp_pointcloud ${OpenCV_LIBS} ${OPENMP_TARGET})
 if(CUDA_FOUND)
   set_target_properties(disp_pointcloud PROPERTIES
     CUDA_SEPARABLE_COMPILATION OFF
@@ -91,15 +98,6 @@ endif()
 rclcpp_components_register_node(disp_pointcloud 
   PLUGIN "TriangulationNode" 
   EXECUTABLE triangulation_node)
-
-add_executable(triangulation src/triangulation-node.cpp ${TRIANGULATION_SRC})
-ament_target_dependencies(triangulation rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters tf2_ros tf2_geometry_msgs OpenCV)
-target_link_libraries(triangulation ${OpenCV_LIBS} OpenMP::OpenMP_CXX)
-if(CUDA_FOUND)
-  set_target_properties(triangulation PROPERTIES
-    CUDA_SEPARABLE_COMPILATION OFF
-  )
-endif()
 
 # 3. Stereo Rectify Node (Plugin)
 add_library(stereo_rect SHARED src/stereo_rect.cpp)
@@ -116,10 +114,6 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-install(TARGETS
-        triangulation
-        disp_node
-        DESTINATION lib/${PROJECT_NAME})
 
 install(TARGETS 
         retinify_disp
