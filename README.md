@@ -1,46 +1,106 @@
-# Disparity Package for ROS2 Humble
 
-## Overview
-This package calculates the disparity between a pair of stereo images, which is useful for 3D perception in robotics applications.
+# Passive Stereo ROS2
 
-## Requirements
-- ROS2 Humble
-- OpenCV 4.5.4
-- Python 3.10
+This repository provides a simple ROS 2 pipeline for **passive stereo depth estimation** using [Retinify](https://docs.retinify.ai/) and conversion to 3D colored point clouds.
+
+---
+
+## Features
+
+* 🔹 **Disparity Estimation**
+  A node that runs the Retinify disparity network on rectified stereo pairs and publishes the disparity image.
+
+* 🔹 **Disparity → PointCloud2**
+  A node that converts the disparity map into a `sensor_msgs/PointCloud2`, using camera calibration parameters.
+  The left rectified image is used as the **RGB texture** of the 3D point cloud.
+
+* 🔹 ROS 2 native (tested on Humble + JetPack 6.2 / x86_64).
+
+---
+### Dependencies
+
+* ROS 2 Humble
+* OpenCV 4.5.4
+* [Retinify](https://docs.retinify.ai/installation.html)
+---
 
 ## Installation
-1. Clone the repository:
-   ```bash
-   cd ~/ros2_ws/src
-   git clone https://github.com/Projeto-Voris/disparity.git
-   ```
-2. Install dependencies and build:
-   ```bash
-   cd ~/ros2_ws
-   rosdep install -i --from-path src --rosdistro humble -y
-   colcon build --packages-select disparity
-   ```
+
+Clone into your workspace:
+
+```bash
+cd ~/ros2_ws/src
+git clone https://github.com/Projeto-Voris/passive_stereo.git
+cd ..
+colcon build
+source install/setup.bash
+```
+
+
+
+## Nodes
+
+### `retinify_disp`
+
+Runs Retinify disparity estimation.
+
+**Subscribed topics**:
+
+* `/stereo/left/image_raw` (`sensor_msgs/Image`)
+* `/stereo/right/image_raw` (`sensor_msgs/Image`)
+* `/stereo/left/camera_info` (`sensor_msgs/CameraInfo`)
+*  `/stereo/right/camera_info` (`sensor_msgs/CameraInfo`)
+
+**Published topics**:
+
+* `/stereo/disparity/image` (`stereo_msgs/DisparityImage`)
+* `/stereo/disparity/debug/image` (`sensor_msgs/Image`)
+* `/stereo/left/rect_image` (`sensor_msgs/Image`)
+* `/stereo/right/rect_image` (`sensor_msgs/Image`)
+
+**Parameters**
+
+| Parameter                   | Description                                    | Value    |
+|----------------------------|------------------------------------------------|----------|
+| `publish_rectified`        | Publish rectified images                       | `True`   |
+| `debug_image`              | Publish debug disparity image                  | `False`   |
+
+---
+
+### `Triangulation`
+
+Converts disparity to colored point cloud from left rectified image.
+
+**Subscribed topics**:
+
+* `/stereo/disparity` (`stereo_msgs/DisparityImage`)
+* `/stereo/left/image_rect` (`sensor_msgs/Image`)
+* `/stereo/left/camera_info` (`sensor_msgs/CameraInfo`)
+
+**Published topics**:
+
+* `/stereo/points2` (`sensor_msgs/PointCloud2`)
+* 
+**Parameters**
+
+| Parameter                   | Description                                    | Value    |
+|----------------------------|------------------------------------------------|----------|
+| `frame_id`   | Pointcloud frame ID                                          | `left_camera_link`   |
+| `sampling_factor`   | Publish debug disparity image                         | `0.8`   |
+| `crop_factor`   | Maximum occupancy threshold                               | `0.9`   |
+
+---
 
 ## Usage
 
-### Disparity Node
-The disparity node requires a YAML configuration file for [OpenCV StereoBM](https://docs.opencv.org/3.4/d9/dba/classcv_1_1StereoBM.html). The settings should be placed in `disparity/cfg/<file>.yaml`. You can pass the YAML file as a launch argument:
+1. Launch your stereo camera drivers (e.g. FLIR, RealSense, ZED) that publish raw images and camera info.
+2. Run:
 
-```bash
-ros2 launch disparity disparity.launch.py --ros-args yaml_file:=<file_name> left_image:=<left_img_topic> right_image:=<right_img_topic>
-```
-
-### PointCloud Node
-The PointCloud node constructs a `sensor_msgs::PointCloud2` message from the disparity image.
-
-- **Grayscale Image PointCloud**:
    ```bash
-   ros2 launch disparity triangulation.launch.py --ros-args yaml_file:=<file_name> disparity:=<disparity_img_topic>
-   ```
-- **Colored Image PointCloud**:
-   ```bash
-   ros2 launch disparity triangulation_rgb.launch.py --ros-args yaml_file:=<file_name> disparity:=<disparity_img_topic> left_image:=<left_img_topic>
+   ros2 launch passive_stereo passive_stereo.launch.py
    ```
 
 ## License
-This project is licensed under the Apache-2.0 License.
+
+MIT License. See [LICENSE](LICENSE) for details.
+
