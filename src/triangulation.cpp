@@ -21,7 +21,8 @@ TriangulationNode::TriangulationNode(const rclcpp::NodeOptions & options)
     this->declare_parameter("confidence_radius", 2);
     this->declare_parameter("confidence_alpha", 2.0);
     this->declare_parameter("min_confidence", 0.3);
-
+    this->declare_parameter("clahe", false);
+    
     frame_id_ = this->get_parameter("frame_id").as_string();
     parent_frame_ = this->get_parameter("parent_frame").as_string();
     sampling_factor_ = static_cast<float>(this->get_parameter("sampling_factor").as_double());
@@ -29,7 +30,13 @@ TriangulationNode::TriangulationNode(const rclcpp::NodeOptions & options)
     max_dist_ = this->get_parameter("max_dist").as_double();
     min_disp_ = this->get_parameter("min_disp").as_double();
     use_gpu_ = this->get_parameter("use_gpu").as_bool();
+    apply_clahe_ = this->get_parameter("clahe").as_bool();
 
+    if (apply_clahe_){
+        RCLCPP_INFO(this->get_logger(), "Applying CLAHE to Lab colorspace");
+        clahe_->setClipLimit(5.0);
+        clahe_->setTilesGridSize(cv::Size(5, 5));
+    }
     tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
@@ -197,6 +204,26 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
         channels = (width > 0) ? std::max(1, static_cast<int>(left_img->step / width)) : 3;
     }
 
+    // Apply CLAHE on L channel of Lab color space (local to this frame)
+    cv::Mat clahe_img;
+    const uint8_t* img_data = left_img->data.data();
+    int img_step = static_cast<int>(left_img->step);
+
+    if (apply_clahe_ && channels >= 3) {
+        cv::Mat raw(height, width, (channels == 4) ? CV_8UC4 : CV_8UC3,
+                    const_cast<uint8_t*>(left_img->data.data()),
+                    left_img->step);
+        cv::Mat lab;
+        cv::cvtColor(raw, lab, is_rgb ? cv::COLOR_RGB2Lab : cv::COLOR_BGR2Lab);
+        std::vector<cv::Mat> lab_channels(3);
+        cv::split(lab, lab_channels);
+        clahe_->apply(lab_channels[0], lab_channels[0]);
+        cv::merge(lab_channels, lab);
+        cv::cvtColor(lab, clahe_img, is_rgb ? cv::COLOR_Lab2RGB : cv::COLOR_Lab2BGR);
+        img_data = clahe_img.data;
+        img_step = static_cast<int>(clahe_img.step[0]);
+    }
+
     passive_stereo::TriangulationParams params;
     params.width = width;
     params.height = height;
@@ -216,7 +243,7 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     std::memcpy(params.T, T_combined_, sizeof(float) * 3);
     params.channels = channels;
     params.is_rgb = is_rgb;
-    params.img_step = static_cast<int>(left_img->step);
+    params.img_step = img_step;
     params.disp_step = static_cast<int>(disp_msg->image.step);
     params.confidence_radius = this->get_parameter("confidence_radius").as_int();
     params.confidence_alpha = static_cast<float>(this->get_parameter("confidence_alpha").as_double());
@@ -231,7 +258,6 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     }
 
     const float* disp_data = reinterpret_cast<const float*>(disp_msg->image.data.data());
-    const uint8_t* img_data = left_img->data.data();
 
     size_t valid_pts = 0;
     bool ran_gpu = false;
@@ -411,5 +437,6 @@ size_t TriangulationNode::triangulate_cpu(
 
     return offset;
 }
+
 
 RCLCPP_COMPONENTS_REGISTER_NODE(TriangulationNode)

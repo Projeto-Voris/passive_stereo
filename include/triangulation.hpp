@@ -30,7 +30,6 @@ private:
   void grab(std::unique_ptr<const stereo_msgs::msg::DisparityImage> disp_msg);
   void grabcamInfoRight(const sensor_msgs::msg::CameraInfo::ConstSharedPtr msg);
   void set_left(sensor_msgs::msg::Image::ConstSharedPtr msg);
-
   void update_transform_matrix();
 
   size_t triangulate_cpu(
@@ -83,6 +82,9 @@ private:
   double crop_factor_{1.0};
   double max_dist_{10.0};
   double min_disp_{1.0};
+
+  cv::Ptr<cv::CLAHE> clahe_ = cv::createCLAHE();
+  bool apply_clahe_ {false};
 
   // GPU Triangulator
   std::unique_ptr<passive_stereo::CudaTriangulator> cuda_triangulator_;
