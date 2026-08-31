@@ -39,6 +39,11 @@ struct TriangulationParams {
     bool is_rgb;     // true if channel order is RGB, false if BGR
     int img_step;    // row step in bytes for color image
     int disp_step;   // row step in bytes for disparity image
+
+    // Confidence-based noise filter parameters
+    int confidence_radius;   // Half-window size (e.g., 2 → 5×5). 0 = disabled.
+    float confidence_alpha;  // Sensitivity: confidence = 1/(1 + alpha * sigma)
+    float min_confidence;    // Threshold: discard points below this confidence
 };
 
 class CudaTriangulator {

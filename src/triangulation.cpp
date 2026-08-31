@@ -1,6 +1,7 @@
 #include "triangulation.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #ifdef _OPENMP
 #include <omp.h>
@@ -17,6 +18,9 @@ TriangulationNode::TriangulationNode(const rclcpp::NodeOptions & options)
     this->declare_parameter("max_dist", 10.0);
     this->declare_parameter("min_disp", 1.0);
     this->declare_parameter("use_gpu", true);
+    this->declare_parameter("confidence_radius", 2);
+    this->declare_parameter("confidence_alpha", 2.0);
+    this->declare_parameter("min_confidence", 0.3);
 
     frame_id_ = this->get_parameter("frame_id").as_string();
     parent_frame_ = this->get_parameter("parent_frame").as_string();
@@ -214,6 +218,9 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     params.is_rgb = is_rgb;
     params.img_step = static_cast<int>(left_img->step);
     params.disp_step = static_cast<int>(disp_msg->image.step);
+    params.confidence_radius = this->get_parameter("confidence_radius").as_int();
+    params.confidence_alpha = static_cast<float>(this->get_parameter("confidence_alpha").as_double());
+    params.min_confidence = static_cast<float>(this->get_parameter("min_confidence").as_double());
 
     int n_u = (u1 - u0 + step - 1) / step;
     int n_v = (v1 - v0 + step - 1) / step;
@@ -318,6 +325,37 @@ size_t TriangulationNode::triangulate_cpu(
                         float dist_sq = x_trans * x_trans + y_trans * y_trans + z_trans * z_trans;
                         if (dist_sq > params.max_dist_sq) {
                             continue;
+                        }
+                    }
+
+                    // Confidence-based noise gate
+                    if (params.confidence_radius > 0) {
+                        float sum = 0.0f, sum_sq = 0.0f;
+                        int count = 0;
+                        for (int dv = -params.confidence_radius; dv <= params.confidence_radius; ++dv) {
+                            int vv = v + dv;
+                            if (vv < 0 || vv >= params.height) continue;
+                            const float* nb_row = reinterpret_cast<const float*>(
+                                reinterpret_cast<const char*>(disp_data) + vv * disp_step);
+                            for (int du = -params.confidence_radius; du <= params.confidence_radius; ++du) {
+                                int uu = u + du;
+                                if (uu < 0 || uu >= params.width) continue;
+                                float dn = nb_row[uu];
+                                if (dn > params.min_disp) {
+                                    sum += dn;
+                                    sum_sq += dn * dn;
+                                    count++;
+                                }
+                            }
+                        }
+                        if (count > 1) {
+                            float mean = sum / count;
+                            float variance = (sum_sq / count) - (mean * mean);
+                            float sigma = std::sqrt(std::max(variance, 0.0f));
+                            float conf = 1.0f / (1.0f + params.confidence_alpha * sigma);
+                            if (conf < params.min_confidence) {
+                                continue;
+                            }
                         }
                     }
 

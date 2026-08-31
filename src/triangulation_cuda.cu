@@ -56,6 +56,39 @@ __global__ void triangulate_kernel(
             }
 
             if (dist_ok) {
+                // Confidence-based noise gate
+                if (params.confidence_radius > 0) {
+                    float sum = 0.0f, sum_sq = 0.0f;
+                    int count = 0;
+                    for (int dv = -params.confidence_radius; dv <= params.confidence_radius; ++dv) {
+                        int vv = v + dv;
+                        if (vv < 0 || vv >= params.height) continue;
+                        const float* nb_row = reinterpret_cast<const float*>(
+                            reinterpret_cast<const char*>(d_disparity) + vv * params.disp_step);
+                        for (int du = -params.confidence_radius; du <= params.confidence_radius; ++du) {
+                            int uu = u + du;
+                            if (uu < 0 || uu >= params.width) continue;
+                            float dn = nb_row[uu];
+                            if (dn > params.min_disp) {
+                                sum += dn;
+                                sum_sq += dn * dn;
+                                count++;
+                            }
+                        }
+                    }
+                    if (count > 1) {
+                        float mean = sum / count;
+                        float variance = (sum_sq / count) - (mean * mean);
+                        float sigma = sqrtf(fmaxf(variance, 0.0f));
+                        float conf = 1.0f / (1.0f + params.confidence_alpha * sigma);
+                        if (conf < params.min_confidence) {
+                            dist_ok = false;
+                        }
+                    }
+                }
+            }
+
+            if (dist_ok) {
                 is_valid = true;
                 pt.x = x_trans;
                 pt.y = y_trans;
