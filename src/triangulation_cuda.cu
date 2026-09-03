@@ -198,12 +198,32 @@ bool CudaTriangulator::init()
     }
     stream_ptr_ = stream;
 
-    err = cudaMalloc(&d_count_, sizeof(unsigned int));
+    // Allocate the point counter as MAPPED memory.
+    // The GPU writes via d_count_ (device alias), the CPU reads via h_count_mapped_
+    // without any explicit D→H copy — the write goes directly to the host page.
+    void* h_count_raw = nullptr;
+    err = cudaHostAlloc(&h_count_raw, sizeof(unsigned int), cudaHostAllocMapped);
     if (err != cudaSuccess) {
-        cudaStreamDestroy(stream);
-        stream_ptr_ = nullptr;
-        available_ = false;
-        return false;
+        // Fallback: ordinary device allocation (loses the zero-copy benefit)
+        err = cudaMalloc(&d_count_, sizeof(unsigned int));
+        if (err != cudaSuccess) {
+            cudaStreamDestroy(stream);
+            stream_ptr_ = nullptr;
+            available_ = false;
+            return false;
+        }
+        h_count_mapped_ = nullptr;  // will use D→H copy path
+    } else {
+        h_count_mapped_ = reinterpret_cast<volatile unsigned int*>(h_count_raw);
+        // Obtain the GPU-visible address of the same physical page
+        err = cudaHostGetDevicePointer(
+            reinterpret_cast<void**>(&d_count_), h_count_raw, 0);
+        if (err != cudaSuccess) {
+            // Fallback: free mapped alloc and use plain device memory
+            cudaFreeHost(h_count_raw);
+            h_count_mapped_ = nullptr;
+            cudaMalloc(&d_count_, sizeof(unsigned int));
+        }
     }
 
     available_ = true;
@@ -232,20 +252,44 @@ void CudaTriangulator::cleanup()
         d_points_ = nullptr;
         d_points_capacity_ = 0;
     }
-    if (d_count_) {
+    // Free mapped counter
+    if (h_count_mapped_) {
+        cudaFreeHost(const_cast<unsigned int*>(
+            reinterpret_cast<volatile unsigned int*>(h_count_mapped_)));
+        h_count_mapped_ = nullptr;
+        d_count_ = nullptr;
+    } else if (d_count_) {
         cudaFree(d_count_);
         d_count_ = nullptr;
+    }
+    // Free pinned input staging buffers
+    if (h_pinned_disp_) {
+        cudaFreeHost(h_pinned_disp_);
+        h_pinned_disp_ = nullptr;
+        h_pinned_disp_cap_ = 0;
+    }
+    if (h_pinned_img_) {
+        cudaFreeHost(h_pinned_img_);
+        h_pinned_img_ = nullptr;
+        h_pinned_img_cap_ = 0;
+    }
+    // Free pinned output buffer
+    if (h_pinned_points_) {
+        cudaFreeHost(h_pinned_points_);
+        h_pinned_points_ = nullptr;
+        h_pinned_points_cap_ = 0;
     }
     available_ = false;
 }
 
-bool CudaTriangulator::ensure_buffers(size_t disp_bytes, size_t img_bytes, size_t max_points)
+// Ensure GPU VRAM buffers are large enough
+bool CudaTriangulator::ensure_device_buffers(size_t disp_bytes, size_t img_bytes, size_t max_points)
 {
     if (!available_) return false;
 
     if (d_disp_capacity_ < disp_bytes) {
         if (d_disparity_) cudaFree(d_disparity_);
-        size_t alloc_sz = disp_bytes + (disp_bytes / 4); // +25% headroom
+        size_t alloc_sz = disp_bytes + (disp_bytes / 4);
         if (cudaMalloc(&d_disparity_, alloc_sz) != cudaSuccess) {
             d_disparity_ = nullptr;
             d_disp_capacity_ = 0;
@@ -280,33 +324,93 @@ bool CudaTriangulator::ensure_buffers(size_t disp_bytes, size_t img_bytes, size_
     return true;
 }
 
-size_t CudaTriangulator::triangulate(
-    const float* h_disparity,
-    size_t disp_bytes,
-    const uint8_t* h_image,
-    size_t img_bytes,
-    const TriangulationParams& params,
-    PointXYZRGB* h_out_points,
-    size_t max_points)
+// Ensure pinned (page-locked) host staging buffers for H→D input transfers
+bool CudaTriangulator::ensure_pinned_input(size_t disp_bytes, size_t img_bytes)
 {
-    if (!available_ || !h_disparity || !h_image || !h_out_points || max_points == 0) {
+    if (h_pinned_disp_cap_ < disp_bytes) {
+        if (h_pinned_disp_) cudaFreeHost(h_pinned_disp_);
+        size_t alloc_sz = disp_bytes + (disp_bytes / 4);
+        if (cudaHostAlloc(&h_pinned_disp_, alloc_sz, cudaHostAllocDefault) != cudaSuccess) {
+            h_pinned_disp_ = nullptr;
+            h_pinned_disp_cap_ = 0;
+            return false;
+        }
+        h_pinned_disp_cap_ = alloc_sz;
+    }
+
+    if (h_pinned_img_cap_ < img_bytes) {
+        if (h_pinned_img_) cudaFreeHost(h_pinned_img_);
+        size_t alloc_sz = img_bytes + (img_bytes / 4);
+        if (cudaHostAlloc(&h_pinned_img_, alloc_sz, cudaHostAllocDefault) != cudaSuccess) {
+            h_pinned_img_ = nullptr;
+            h_pinned_img_cap_ = 0;
+            return false;
+        }
+        h_pinned_img_cap_ = alloc_sz;
+    }
+
+    return true;
+}
+
+// Ensure pinned host output buffer for D→H result transfer
+bool CudaTriangulator::ensure_pinned_output(size_t max_points)
+{
+    if (h_pinned_points_cap_ < max_points) {
+        if (h_pinned_points_) cudaFreeHost(h_pinned_points_);
+        size_t alloc_pts = max_points + (max_points / 4);
+        if (cudaHostAlloc(&h_pinned_points_, alloc_pts * sizeof(PointXYZRGB),
+                          cudaHostAllocDefault) != cudaSuccess) {
+            h_pinned_points_ = nullptr;
+            h_pinned_points_cap_ = 0;
+            return false;
+        }
+        h_pinned_points_cap_ = alloc_pts;
+    }
+    return true;
+}
+
+size_t CudaTriangulator::triangulate(
+    const float*   h_disparity,
+    size_t         disp_bytes,
+    const uint8_t* h_image,
+    size_t         img_bytes,
+    const TriangulationParams& params,
+    size_t         max_points,
+    PointXYZRGB**  h_points_out)
+{
+    if (!available_ || !h_disparity || !h_image || !h_points_out || max_points == 0) {
+        if (h_points_out) *h_points_out = nullptr;
         return 0;
     }
 
-    if (!ensure_buffers(disp_bytes, img_bytes, max_points)) {
+    if (!ensure_device_buffers(disp_bytes, img_bytes, max_points) ||
+        !ensure_pinned_input(disp_bytes, img_bytes) ||
+        !ensure_pinned_output(max_points)) {
+        if (h_points_out) *h_points_out = nullptr;
         return 0;
     }
 
     cudaStream_t stream = static_cast<cudaStream_t>(stream_ptr_);
 
-    // 1. Reset count to 0
-    cudaMemsetAsync(d_count_, 0, sizeof(unsigned int), stream);
+    // 1. Stage inputs into pinned memory (fast CPU-side write, no page faults)
+    std::memcpy(h_pinned_disp_, h_disparity, disp_bytes);
+    std::memcpy(h_pinned_img_,  h_image,     img_bytes);
 
-    // 2. Async copy inputs to device
-    cudaMemcpyAsync(d_disparity_, h_disparity, disp_bytes, cudaMemcpyHostToDevice, stream);
-    cudaMemcpyAsync(d_image_, h_image, img_bytes, cudaMemcpyHostToDevice, stream);
+    // 2. Reset the mapped counter to 0 via the host pointer (no CUDA call needed)
+    if (h_count_mapped_) {
+        *const_cast<unsigned int*>(
+            reinterpret_cast<volatile unsigned int*>(h_count_mapped_)) = 0u;
+        // Fence: ensure the GPU sees the reset before the kernel runs
+        __sync_synchronize();
+    } else {
+        cudaMemsetAsync(d_count_, 0, sizeof(unsigned int), stream);
+    }
 
-    // 3. Launch kernel
+    // 3. Async H→D: pinned→device (true DMA, CPU is free immediately after call)
+    cudaMemcpyAsync(d_disparity_, h_pinned_disp_, disp_bytes, cudaMemcpyHostToDevice, stream);
+    cudaMemcpyAsync(d_image_,     h_pinned_img_,  img_bytes,  cudaMemcpyHostToDevice, stream);
+
+    // 4. Launch kernel
     int n_u = (params.u1 - params.u0 + params.step - 1) / params.step;
     int n_v = (params.v1 - params.v0 + params.step - 1) / params.step;
 
@@ -321,20 +425,38 @@ size_t CudaTriangulator::triangulate(
         d_count_,
         max_points);
 
-    // 4. Retrieve count
-    unsigned int h_count = 0;
-    cudaMemcpyAsync(&h_count, d_count_, sizeof(unsigned int), cudaMemcpyDeviceToHost, stream);
+    // 5. If using mapped counter: just sync the stream; the count is already in host memory.
+    //    If using plain device memory: also copy the count back.
+    if (!h_count_mapped_) {
+        unsigned int h_count = 0;
+        cudaMemcpyAsync(&h_count, d_count_, sizeof(unsigned int), cudaMemcpyDeviceToHost, stream);
+        cudaStreamSynchronize(stream);
 
-    // Synchronize to get the valid count
+        size_t valid_points = std::min(static_cast<size_t>(h_count), max_points);
+        if (valid_points > 0) {
+            cudaMemcpyAsync(h_pinned_points_, d_points_,
+                            valid_points * sizeof(PointXYZRGB), cudaMemcpyDeviceToHost, stream);
+            cudaStreamSynchronize(stream);
+        }
+        *h_points_out = h_pinned_points_;
+        return valid_points;
+    }
+
+    // Mapped counter path: sync stream to flush kernel + point writes
     cudaStreamSynchronize(stream);
 
-    size_t valid_points = std::min(static_cast<size_t>(h_count), max_points);
+    // h_count_mapped_ now contains the final point count (written by the GPU directly)
+    size_t valid_points = std::min(
+        static_cast<size_t>(*h_count_mapped_), max_points);
+
     if (valid_points > 0) {
-        // Copy only valid points back to host
-        cudaMemcpyAsync(h_out_points, d_points_, valid_points * sizeof(PointXYZRGB), cudaMemcpyDeviceToHost, stream);
+        // D→H: copy only the valid points into pinned output buffer
+        cudaMemcpyAsync(h_pinned_points_, d_points_,
+                        valid_points * sizeof(PointXYZRGB), cudaMemcpyDeviceToHost, stream);
         cudaStreamSynchronize(stream);
     }
 
+    *h_points_out = h_pinned_points_;
     return valid_points;
 }
 

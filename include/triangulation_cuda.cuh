@@ -57,33 +57,65 @@ public:
     bool init();
     void cleanup();
 
-    // Executes GPU triangulation, writes points to h_out_points, returns valid points count
+    // Executes GPU triangulation.
+    //
+    // Inputs are staged into pinned buffers before H→D upload, enabling true
+    // async DMA so the CPU is not stalled during the transfer.
+    //
+    // The point counter uses CUDA mapped memory: the GPU writes the count
+    // directly into host-visible memory — no explicit D→H copy is needed.
+    //
+    // Output points are written into an internal pinned host buffer. The caller
+    // receives a pointer to that buffer via h_points_out (no extra memcpy).
+    //
+    // Returns the number of valid points produced.
     size_t triangulate(
-        const float* h_disparity,
-        size_t disp_bytes,
+        const float*   h_disparity,
+        size_t         disp_bytes,
         const uint8_t* h_image,
-        size_t img_bytes,
+        size_t         img_bytes,
         const TriangulationParams& params,
-        PointXYZRGB* h_out_points,
-        size_t max_points);
+        size_t         max_points,
+        PointXYZRGB**  h_points_out  // receives pointer to internal pinned output buffer
+    );
 
 private:
-    bool ensure_buffers(size_t disp_bytes, size_t img_bytes, size_t max_points);
+    bool ensure_device_buffers(size_t disp_bytes, size_t img_bytes, size_t max_points);
+    bool ensure_pinned_input(size_t disp_bytes, size_t img_bytes);
+    bool ensure_pinned_output(size_t max_points);
 
     bool available_{false};
     std::string device_name_;
 
-    float* d_disparity_{nullptr};
-    size_t d_disp_capacity_{0};
+    // --- Device buffers (GPU VRAM) ---
+    float*       d_disparity_{nullptr};
+    size_t       d_disp_capacity_{0};
 
-    uint8_t* d_image_{nullptr};
-    size_t d_img_capacity_{0};
+    uint8_t*     d_image_{nullptr};
+    size_t       d_img_capacity_{0};
 
     PointXYZRGB* d_points_{nullptr};
-    size_t d_points_capacity_{0};
+    size_t       d_points_capacity_{0};
 
-    unsigned int* d_count_{nullptr};
+    // --- Mapped counter: GPU writes directly to host memory (zero D→H copy) ---
+    // cudaHostAllocMapped gives the CPU a host pointer and lets the GPU write via
+    // the device alias obtained from cudaHostGetDevicePointer.
+    volatile unsigned int* h_count_mapped_{nullptr};  // CPU reads this
+    unsigned int*          d_count_{nullptr};          // GPU writes this (same physical page)
+
+    // --- Pinned staging buffers for H→D inputs (true async DMA, CPU-free) ---
+    float*   h_pinned_disp_{nullptr};
+    size_t   h_pinned_disp_cap_{0};
+
+    uint8_t* h_pinned_img_{nullptr};
+    size_t   h_pinned_img_cap_{0};
+
+    // --- Pinned output buffer (fast D→H DMA; caller reads without extra memcpy) ---
+    PointXYZRGB* h_pinned_points_{nullptr};
+    size_t       h_pinned_points_cap_{0};  // capacity in number of points
+
     void* stream_ptr_{nullptr};
 };
 
 } // namespace passive_stereo
+

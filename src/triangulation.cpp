@@ -253,36 +253,39 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     int n_v = (v1 - v0 + step - 1) / step;
     size_t max_pts = static_cast<size_t>(n_u) * static_cast<size_t>(n_v);
 
-    if (host_point_buffer_.size() < max_pts) {
-        host_point_buffer_.resize(max_pts);
-    }
-
     const float* disp_data = reinterpret_cast<const float*>(disp_msg->image.data.data());
 
     size_t valid_pts = 0;
-    bool ran_gpu = false;
+    const passive_stereo::PointXYZRGB* point_ptr = nullptr;
 
     if (use_gpu_ && cuda_triangulator_ && cuda_triangulator_->is_available()) {
+        // GPU path: triangulator stages inputs into its own pinned buffers and
+        // writes results into its own pinned output buffer.
+        // h_pinned receives a pointer directly into that buffer — no extra memcpy.
+        passive_stereo::PointXYZRGB* h_pinned = nullptr;
         valid_pts = cuda_triangulator_->triangulate(
             disp_data,
             disp_msg->image.data.size(),
             img_data,
             left_img->data.size(),
             params,
-            host_point_buffer_.data(),
-            max_pts);
-        ran_gpu = true;
-    }
-
-    if (!ran_gpu) {
+            max_pts,
+            &h_pinned);
+        point_ptr = h_pinned;
+    } else {
+        // CPU fallback path: uses cpu_point_buffer_ (pageable heap allocation)
+        if (cpu_point_buffer_.size() < max_pts) {
+            cpu_point_buffer_.resize(max_pts);
+        }
         valid_pts = triangulate_cpu(
             disp_data,
             params.disp_step,
             img_data,
             params.img_step,
             params,
-            host_point_buffer_.data(),
+            cpu_point_buffer_.data(),
             max_pts);
+        point_ptr = cpu_point_buffer_.data();
     }
 
     // Build PointCloud2 message
@@ -304,8 +307,10 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     cloud->is_dense = false;
     cloud->data.resize(cloud->row_step);
 
-    if (valid_pts > 0) {
-        std::memcpy(cloud->data.data(), host_point_buffer_.data(), cloud->row_step);
+    // Single memcpy from pinned (GPU path) or heap (CPU path) → ROS message buffer.
+    // For the GPU path this is a fast L3-hot copy from pinned memory (no page faults).
+    if (valid_pts > 0 && point_ptr) {
+        std::memcpy(cloud->data.data(), point_ptr, cloud->row_step);
     }
 
     pub_cloud_->publish(std::move(cloud));
@@ -320,12 +325,22 @@ size_t TriangulationNode::triangulate_cpu(
     passive_stereo::PointXYZRGB* out_points,
     size_t max_points)
 {
+#ifdef _OPENMP
     int num_threads = omp_get_max_threads();
+#else
+    int num_threads = 1;
+#endif
     std::vector<std::vector<passive_stereo::PointXYZRGB>> thread_buffers(num_threads);
 
+#ifdef _OPENMP
     #pragma omp parallel
+#endif
     {
+#ifdef _OPENMP
         int tid = omp_get_thread_num();
+#else
+        int tid = 0;
+#endif
         auto& local_pts = thread_buffers[tid];
         local_pts.clear();
         local_pts.reserve(max_points / num_threads);

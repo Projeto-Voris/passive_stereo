@@ -86,9 +86,9 @@ private:
   cv::Ptr<cv::CLAHE> clahe_ = cv::createCLAHE();
   bool apply_clahe_ {false};
 
-  // GPU Triangulator
+  // GPU Triangulator (owns its own pinned in/out buffers — no host_point_buffer_ needed)
   std::unique_ptr<passive_stereo::CudaTriangulator> cuda_triangulator_;
 
-  // Reusable host point buffer to avoid dynamic memory re-allocation
-  std::vector<passive_stereo::PointXYZRGB> host_point_buffer_;
+  // Reusable buffer for the CPU-only fallback path
+  std::vector<passive_stereo::PointXYZRGB> cpu_point_buffer_;
 };
