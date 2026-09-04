@@ -107,6 +107,14 @@ rclcpp_components_register_node(stereo_rect
   PLUGIN "passive_stereo::StereoRectifyNode"
   EXECUTABLE stereo_rect_node)
 
+# 4. Retinify Stereo & PointCloud Node (All-in-one via Retinify)
+add_library(retinify_stereo SHARED src/retinify_stereo.cpp)
+ament_target_dependencies(retinify_stereo rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters tf2_ros tf2_geometry_msgs OpenCV)
+target_link_libraries(retinify_stereo retinify ${OpenCV_LIBS} ${OPENMP_TARGET})
+rclcpp_components_register_node(retinify_stereo
+  PLUGIN "passive_stereo::RetinifyStereoNode"
+  EXECUTABLE retinify_stereo_node)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
@@ -119,6 +127,7 @@ install(TARGETS
         retinify_disp
         disp_pointcloud
         stereo_rect
+        retinify_stereo
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION bin)  
