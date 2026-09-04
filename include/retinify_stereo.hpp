@@ -29,19 +29,10 @@
 #include "tf2/LinearMath/Transform.h"
 
 #include <retinify/retinify.hpp>
+#include "triangulation_cuda.cuh"
 
 namespace passive_stereo
 {
-
-#pragma pack(push, 1)
-struct PointXYZRGB
-{
-    float x;
-    float y;
-    float z;
-    uint32_t rgb;
-};
-#pragma pack(pop)
 
 class RetinifyStereoNode : public rclcpp::Node
 {
@@ -52,7 +43,7 @@ public:
         sensor_msgs::msg::Image, sensor_msgs::msg::Image>;
 
     explicit RetinifyStereoNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
-    ~RetinifyStereoNode() override = default;
+    ~RetinifyStereoNode() override;
 
 private:
     // Callbacks
@@ -66,6 +57,16 @@ private:
     bool initializePipeline(uint32_t width, uint32_t height);
     void updateTransformMatrix();
     cv::Mat applyCLAHE(const cv::Mat & input_bgr);
+
+    size_t triangulateCPU(
+        const float* disp_data,
+        int disp_step,
+        const uint8_t* img_data,
+        int img_step,
+        const TriangulationParams& params,
+        size_t max_points,
+        void* out_points,
+        bool with_confidence);
 
     // Subscriptions
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_left_info_;
@@ -90,9 +91,16 @@ private:
     bool pipeline_initialized_{false};
     std::mutex pipeline_mutex_;
 
-    // Retinify Buffers
-    std::vector<float> disparity_buffer_;
-    std::vector<float> pointcloud_buffer_;
+    // Pinned Host Disparity Buffer
+    float* h_pinned_disp_{nullptr};
+    size_t pinned_disp_bytes_{0};
+    std::vector<float> cpu_disp_buffer_;
+
+    // GPU CUDA Triangulator
+    std::unique_ptr<passive_stereo::CudaTriangulator> cuda_triangulator_;
+    std::vector<uint8_t> cpu_point_buffer_;
+
+    // Optional Retinify Buffers
     std::vector<float> depth_buffer_;
     std::vector<uint8_t> rect_left_buffer_;
     std::vector<uint8_t> rect_right_buffer_;
@@ -130,10 +138,17 @@ private:
     bool debug_image_{false};
     bool use_exact_sync_{false};
     bool apply_clahe_{false};
-    bool pointcloud_color_{true};
+    bool use_gpu_{true};
+    bool publish_confidence_field_{true};
+    int confidence_radius_{2};
+    double confidence_alpha_{2.0};
+    double min_confidence_{0.35};
+    bool invert_x_{false};
+    bool invert_y_{false};
+    bool invert_z_{false};
     std::string depth_mode_str_{"accurate"};
     std::string calibration_file_{""};
-    std::string frame_id_{"left_camera_optical_frame"};
+    std::string frame_id_{"left_camera_link"};
     std::string parent_frame_{""};
     double sampling_factor_{1.0};
     double crop_factor_{1.0};

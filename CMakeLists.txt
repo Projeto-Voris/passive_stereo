@@ -75,25 +75,24 @@ rclcpp_components_register_node(retinify_disp
   PLUGIN "RetinifyDisparityNode" 
   EXECUTABLE retinify_disp_node)
 
-# 2. Triangulation Node (GPU + CPU)
+# 2. CUDA Triangulation Library
 if(CUDA_FOUND)
-  set(TRIANGULATION_SRC
-    src/triangulation.cpp
+  add_library(stereo_cuda_lib STATIC
     src/triangulation_cuda.cu
   )
-else()
-  set(TRIANGULATION_SRC
-    src/triangulation.cpp
+  set_target_properties(stereo_cuda_lib PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    POSITION_INDEPENDENT_CODE ON
   )
 endif()
 
-add_library(disp_pointcloud SHARED ${TRIANGULATION_SRC})
+# 2. Triangulation Node (GPU + CPU)
+add_library(disp_pointcloud SHARED src/triangulation.cpp)
 ament_target_dependencies(disp_pointcloud rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters tf2_ros tf2_geometry_msgs OpenCV)
-target_link_libraries(disp_pointcloud ${OpenCV_LIBS} ${OPENMP_TARGET})
 if(CUDA_FOUND)
-  set_target_properties(disp_pointcloud PROPERTIES
-    CUDA_SEPARABLE_COMPILATION OFF
-  )
+  target_link_libraries(disp_pointcloud stereo_cuda_lib ${OpenCV_LIBS} ${OPENMP_TARGET})
+else()
+  target_link_libraries(disp_pointcloud ${OpenCV_LIBS} ${OPENMP_TARGET})
 endif()
 rclcpp_components_register_node(disp_pointcloud 
   PLUGIN "TriangulationNode" 
@@ -107,10 +106,14 @@ rclcpp_components_register_node(stereo_rect
   PLUGIN "passive_stereo::StereoRectifyNode"
   EXECUTABLE stereo_rect_node)
 
-# 4. Retinify Stereo & PointCloud Node (All-in-one via Retinify)
+# 4. Retinify Stereo & PointCloud Node (All-in-one via Retinify + GPU Confidence Filter)
 add_library(retinify_stereo SHARED src/retinify_stereo.cpp)
 ament_target_dependencies(retinify_stereo rclcpp rclcpp_components sensor_msgs stereo_msgs cv_bridge message_filters tf2_ros tf2_geometry_msgs OpenCV)
-target_link_libraries(retinify_stereo retinify ${OpenCV_LIBS} ${OPENMP_TARGET})
+if(CUDA_FOUND)
+  target_link_libraries(retinify_stereo stereo_cuda_lib retinify ${OpenCV_LIBS} ${OPENMP_TARGET})
+else()
+  target_link_libraries(retinify_stereo retinify ${OpenCV_LIBS} ${OPENMP_TARGET})
+endif()
 rclcpp_components_register_node(retinify_stereo
   PLUGIN "passive_stereo::RetinifyStereoNode"
   EXECUTABLE retinify_stereo_node)

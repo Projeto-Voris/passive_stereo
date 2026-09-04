@@ -248,6 +248,9 @@ void TriangulationNode::grab(std::unique_ptr<const stereo_msgs::msg::DisparityIm
     params.confidence_radius = this->get_parameter("confidence_radius").as_int();
     params.confidence_alpha = static_cast<float>(this->get_parameter("confidence_alpha").as_double());
     params.min_confidence = static_cast<float>(this->get_parameter("min_confidence").as_double());
+    params.invert_x = false;
+    params.invert_y = false;
+    params.invert_z = false;
 
     int n_u = (u1 - u0 + step - 1) / step;
     int n_v = (v1 - v0 + step - 1) / step;
@@ -354,9 +357,13 @@ size_t TriangulationNode::triangulate_cpu(
             for (int u = params.u0; u < params.u1; u += params.step) {
                 float d = disp_row[u];
                 if (d > params.min_disp) {
-                    float Z = -params.baseline * params.fx / d;
+                    float b = std::abs(params.baseline);
+                    float Z = b * params.fx / d;
                     float X = (static_cast<float>(u) - params.cx) * Z / params.fx;
                     float Y = (static_cast<float>(v) - params.cy) * Z / params.fy;
+                    if (params.invert_x) X = -X;
+                    if (params.invert_y) Y = -Y;
+                    if (params.invert_z) Z = -Z;
 
                     float x_trans = params.R[0] * X + params.R[1] * Y + params.R[2] * Z + params.T[0];
                     float y_trans = params.R[3] * X + params.R[4] * Y + params.R[5] * Z + params.T[1];
