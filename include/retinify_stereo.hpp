@@ -28,11 +28,24 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2/LinearMath/Transform.h"
 
+#include <cuda_runtime.h>
 #include <retinify/retinify.hpp>
-#include "triangulation_cuda.cuh"
 
 namespace passive_stereo
 {
+
+/// Packed point layout for ROS PointCloud2 (16 bytes)
+struct PointXYZRGB {
+    float x, y, z;
+    uint32_t rgb;
+};
+
+/// Packed point layout with confidence field (20 bytes)
+struct PointXYZRGBConfidence {
+    float x, y, z;
+    uint32_t rgb;
+    float confidence;
+};
 
 class RetinifyStereoNode : public rclcpp::Node
 {
@@ -58,15 +71,21 @@ private:
     void updateTransformMatrix();
     cv::Mat applyCLAHE(const cv::Mat & input_bgr);
 
-    size_t triangulateCPU(
+    size_t compactPointCloud(
+        const float* xyz_data,
+        const uint8_t* img_data,
+        uint32_t width, uint32_t height,
+        int u0, int v0, int u1, int v1,
+        int step,
+        float max_dist_sq,
+        int img_step, bool is_rgb,
+        void* out_buf,
+        bool with_confidence,
         const float* disp_data,
         int disp_step,
-        const uint8_t* img_data,
-        int img_step,
-        const TriangulationParams& params,
-        size_t max_points,
-        void* out_points,
-        bool with_confidence);
+        int confidence_radius,
+        float confidence_alpha,
+        float min_confidence);
 
     // Subscriptions
     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_left_info_;
@@ -91,13 +110,14 @@ private:
     bool pipeline_initialized_{false};
     std::mutex pipeline_mutex_;
 
-    // Pinned Host Disparity Buffer
-    float* h_pinned_disp_{nullptr};
+    // Pinned Host Buffers (fast GPU→CPU DMA via cudaHostAlloc)
+    float* h_pinned_disp_{nullptr};     ///< W×H float disparity (for publish_disparity/debug/confidence)
     size_t pinned_disp_bytes_{0};
-    std::vector<float> cpu_disp_buffer_;
+    float* h_pinned_xyz_{nullptr};      ///< W×H×3 float XYZ from Retinify GPU reprojection
+    size_t pinned_xyz_bytes_{0};
+    std::vector<float> cpu_disp_buffer_; ///< Pageable fallback if pinned alloc fails
 
-    // GPU CUDA Triangulator
-    std::unique_ptr<passive_stereo::CudaTriangulator> cuda_triangulator_;
+    // CPU compaction output (written per frame, then memcpy'd into ROS PointCloud2)
     std::vector<uint8_t> cpu_point_buffer_;
 
     // Optional Retinify Buffers
@@ -143,9 +163,6 @@ private:
     int confidence_radius_{2};
     double confidence_alpha_{2.0};
     double min_confidence_{0.35};
-    bool invert_x_{false};
-    bool invert_y_{false};
-    bool invert_z_{false};
     std::string depth_mode_str_{"accurate"};
     std::string calibration_file_{""};
     std::string frame_id_{"left_camera_link"};

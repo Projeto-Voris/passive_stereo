@@ -3,10 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-#include <cuda_runtime.h>
 
 namespace passive_stereo
 {
@@ -31,9 +27,6 @@ RetinifyStereoNode::RetinifyStereoNode(const rclcpp::NodeOptions & options)
     this->declare_parameter<std::string>("calibration_file", "");
     this->declare_parameter<std::string>("frame_id", "left_camera_link");
     this->declare_parameter<std::string>("parent_frame", "");
-    this->declare_parameter<bool>("invert_x", false);
-    this->declare_parameter<bool>("invert_y", false);
-    this->declare_parameter<bool>("invert_z", false);
     this->declare_parameter<double>("sampling_factor", 1.0);
     this->declare_parameter<double>("crop_factor", 1.0);
     this->declare_parameter<double>("min_disp", 1.0);
@@ -53,9 +46,6 @@ RetinifyStereoNode::RetinifyStereoNode(const rclcpp::NodeOptions & options)
     confidence_radius_ = this->get_parameter("confidence_radius").as_int();
     confidence_alpha_ = this->get_parameter("confidence_alpha").as_double();
     min_confidence_ = this->get_parameter("min_confidence").as_double();
-    invert_x_ = this->get_parameter("invert_x").as_bool();
-    invert_y_ = this->get_parameter("invert_y").as_bool();
-    invert_z_ = this->get_parameter("invert_z").as_bool();
     depth_mode_str_ = this->get_parameter("depth_mode").as_string();
     calibration_file_ = this->get_parameter("calibration_file").as_string();
     frame_id_ = this->get_parameter("frame_id").as_string();
@@ -75,16 +65,8 @@ RetinifyStereoNode::RetinifyStereoNode(const rclcpp::NodeOptions & options)
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     updateTransformMatrix();
 
-    // Initialize CUDA Triangulator
-    cuda_triangulator_ = std::make_unique<passive_stereo::CudaTriangulator>();
-    if (use_gpu_ && cuda_triangulator_->is_available()) {
-        RCLCPP_INFO(this->get_logger(),
-            "RetinifyStereoNode: GPU CUDA Triangulation & Confidence Filter enabled on [%s]",
-            cuda_triangulator_->get_device_name().c_str());
-    } else {
-        RCLCPP_INFO(this->get_logger(),
-            "RetinifyStereoNode: Multi-threaded OpenMP CPU Triangulation enabled");
-    }
+    RCLCPP_INFO(this->get_logger(),
+        "RetinifyStereoNode: Using Retinify GPU reprojection (RetrievePointCloud)");
 
     // QoS Setup
     auto sensor_qos = rclcpp::SensorDataQoS();
@@ -151,6 +133,11 @@ RetinifyStereoNode::~RetinifyStereoNode()
         cudaFreeHost(h_pinned_disp_);
         h_pinned_disp_ = nullptr;
         pinned_disp_bytes_ = 0;
+    }
+    if (h_pinned_xyz_) {
+        cudaFreeHost(h_pinned_xyz_);
+        h_pinned_xyz_ = nullptr;
+        pinned_xyz_bytes_ = 0;
     }
 }
 
@@ -266,18 +253,33 @@ bool RetinifyStereoNode::initializePipeline(uint32_t width, uint32_t height)
         return false;
     }
 
-    // Allocate pinned host memory for disparity
+    // Allocate pinned host memory for disparity (needed for publish_disparity, debug, and confidence gate)
     size_t needed_disp_bytes = width * height * sizeof(float);
     if (pinned_disp_bytes_ < needed_disp_bytes) {
         if (h_pinned_disp_) cudaFreeHost(h_pinned_disp_);
         cudaError_t err = cudaHostAlloc(&h_pinned_disp_, needed_disp_bytes, cudaHostAllocDefault);
         if (err != cudaSuccess) {
-            RCLCPP_WARN(this->get_logger(), "cudaHostAlloc failed for disparity, falling back to pageable host memory");
+            RCLCPP_WARN(this->get_logger(), "cudaHostAlloc failed for disparity, falling back to pageable memory");
             h_pinned_disp_ = nullptr;
             cpu_disp_buffer_.resize(width * height);
             pinned_disp_bytes_ = 0;
         } else {
             pinned_disp_bytes_ = needed_disp_bytes;
+        }
+    }
+
+    // Allocate pinned host memory for XYZ pointcloud (W * H * 3 floats)
+    size_t needed_xyz_bytes = width * height * 3 * sizeof(float);
+    if (pinned_xyz_bytes_ < needed_xyz_bytes) {
+        if (h_pinned_xyz_) cudaFreeHost(h_pinned_xyz_);
+        cudaError_t err = cudaHostAlloc(&h_pinned_xyz_, needed_xyz_bytes, cudaHostAllocDefault);
+        if (err != cudaSuccess) {
+            RCLCPP_ERROR(this->get_logger(),
+                "cudaHostAlloc failed for XYZ pointcloud buffer (%zu bytes). Pointcloud disabled.", needed_xyz_bytes);
+            h_pinned_xyz_ = nullptr;
+            pinned_xyz_bytes_ = 0;
+        } else {
+            pinned_xyz_bytes_ = needed_xyz_bytes;
         }
     }
 
@@ -289,12 +291,17 @@ bool RetinifyStereoNode::initializePipeline(uint32_t width, uint32_t height)
         rect_right_buffer_.resize(width * height * 3);
     }
 
+    // Pre-allocate CPU compaction buffer (worst case: all pixels valid)
+    size_t max_pts = static_cast<size_t>(width) * static_cast<size_t>(height);
+    size_t point_size = publish_confidence_field_ ? sizeof(PointXYZRGBConfidence) : sizeof(PointXYZRGB);
+    cpu_point_buffer_.resize(max_pts * point_size);
+
     pipeline_initialized_ = true;
     RCLCPP_INFO(this->get_logger(),
-        "Retinify stereo pipeline initialized: %ux%u (DepthMode=%s, GPU Triangulator=%s, PinnedDisp=%s)",
+        "Retinify stereo pipeline initialized: %ux%u (DepthMode=%s, PinnedDisp=%s, PinnedXYZ=%s)",
         width, height, depth_mode_str_.c_str(),
-        (use_gpu_ && cuda_triangulator_->is_available()) ? "YES" : "CPU",
-        (h_pinned_disp_ != nullptr) ? "YES" : "NO");
+        (h_pinned_disp_ != nullptr) ? "YES" : "NO",
+        (h_pinned_xyz_ != nullptr) ? "YES" : "NO");
     return true;
 }
 
@@ -317,156 +324,122 @@ cv::Mat RetinifyStereoNode::applyCLAHE(const cv::Mat & input_bgr)
     return output_bgr;
 }
 
-size_t RetinifyStereoNode::triangulateCPU(
+/// Compact the dense W×H×3 XYZ grid produced by Retinify::RetrievePointCloud into a
+/// ROS-ready packed buffer of PointXYZRGB or PointXYZRGBConfidence structs.
+///
+/// Retinify writes X,Y,Z as three consecutive floats per pixel in row-major order.
+/// Invalid pixels (no disparity) have X=Y=Z=0. We skip those and apply:
+///   - crop / sampling stride
+///   - axis inversion flags
+///   - max_dist sphere filter
+///   - optional TF transform (R_combined_, T_combined_)
+///   - optional disparity variance confidence gate
+///   - RGB colorization from the left image
+size_t RetinifyStereoNode::compactPointCloud(
+    const float* xyz_data,
+    const uint8_t* img_data,
+    uint32_t width, uint32_t height,
+    int u0, int v0, int u1, int v1,
+    int step,
+    float max_dist_sq,
+    int img_step, bool is_rgb,
+    void* out_buf,
+    bool with_confidence,
     const float* disp_data,
     int disp_step,
-    const uint8_t* img_data,
-    int img_step,
-    const TriangulationParams& params,
-    size_t max_points,
-    void* out_points,
-    bool with_confidence)
+    int confidence_radius,
+    float confidence_alpha,
+    float min_confidence)
 {
-#ifdef _OPENMP
-    int num_threads = omp_get_max_threads();
-#else
-    int num_threads = 1;
-#endif
+    size_t count = 0;
+    auto* dst_rgb  = reinterpret_cast<PointXYZRGB*>(out_buf);
+    auto* dst_conf = reinterpret_cast<PointXYZRGBConfidence*>(out_buf);
 
-    std::vector<std::vector<PointXYZRGBConfidence>> thread_conf_buf(num_threads);
-    std::vector<std::vector<PointXYZRGB>> thread_buf(num_threads);
+    for (int v = v0; v < v1; v += step) {
+        // xyz_data row: each pixel = 3 floats (X, Y, Z), stride = width * 3 * sizeof(float)
+        const float* xyz_row = xyz_data + v * static_cast<int>(width) * 3;
+        const uint8_t* img_row = img_data + v * img_step;
 
-#ifdef _OPENMP
-    #pragma omp parallel
-#endif
-    {
-#ifdef _OPENMP
-        int tid = omp_get_thread_num();
-#else
-        int tid = 0;
-#endif
-        if (with_confidence) {
-            thread_conf_buf[tid].clear();
-            thread_conf_buf[tid].reserve(max_points / num_threads);
-        } else {
-            thread_buf[tid].clear();
-            thread_buf[tid].reserve(max_points / num_threads);
-        }
+        for (int u = u0; u < u1; u += step) {
+            float X = xyz_row[u * 3 + 0];
+            float Y = xyz_row[u * 3 + 1];
+            float Z = xyz_row[u * 3 + 2];
 
-#ifdef _OPENMP
-        #pragma omp for schedule(static)
-#endif
-        for (int v = params.v0; v < params.v1; v += params.step) {
-            const float* disp_row = reinterpret_cast<const float*>(
-                reinterpret_cast<const char*>(disp_data) + v * disp_step);
-            const uint8_t* img_row = img_data + v * img_step;
+            // Skip invalid points (Retinify marks them as (0,0,0))
+            if (Z <= 0.0f) continue;
 
-            for (int u = params.u0; u < params.u1; u += params.step) {
-                float d = disp_row[u];
-                if (d <= params.min_disp) continue;
 
-                float b = std::abs(params.baseline);
-                float Z = b * params.fx / d;
-                float X = (static_cast<float>(u) - params.cx) * Z / params.fx;
-                float Y = (static_cast<float>(v) - params.cy) * Z / params.fy;
+            // Apply optional TF transform (R * p + T)
+            float x_t = R_combined_[0] * X + R_combined_[1] * Y + R_combined_[2] * Z + T_combined_[0];
+            float y_t = R_combined_[3] * X + R_combined_[4] * Y + R_combined_[5] * Z + T_combined_[1];
+            float z_t = R_combined_[6] * X + R_combined_[7] * Y + R_combined_[8] * Z + T_combined_[2];
 
-                if (params.invert_x) X = -X;
-                if (params.invert_y) Y = -Y;
-                if (params.invert_z) Z = -Z;
+            // Max distance filter
+            if (max_dist_sq > 0.0f) {
+                float dist_sq = x_t * x_t + y_t * y_t + z_t * z_t;
+                if (dist_sq > max_dist_sq) continue;
+            }
 
-                if (Z <= 0.0f && !params.invert_z) continue;
-
-                float x_trans = params.R[0] * X + params.R[1] * Y + params.R[2] * Z + params.T[0];
-                float y_trans = params.R[3] * X + params.R[4] * Y + params.R[5] * Z + params.T[1];
-                float z_trans = params.R[6] * X + params.R[7] * Y + params.R[8] * Z + params.T[2];
-
-                if (params.max_dist_sq > 0.0f) {
-                    float dist_sq = x_trans * x_trans + y_trans * y_trans + z_trans * z_trans;
-                    if (dist_sq > params.max_dist_sq) continue;
-                }
-
-                float conf = 1.0f;
-                if (params.confidence_radius > 0) {
-                    float sum = 0.0f, sum_sq = 0.0f;
-                    int count = 0;
-                    for (int dv = -params.confidence_radius; dv <= params.confidence_radius; ++dv) {
-                        int vv = v + dv;
-                        if (vv < 0 || vv >= params.height) continue;
-                        const float* nb_row = reinterpret_cast<const float*>(
-                            reinterpret_cast<const char*>(disp_data) + vv * disp_step);
-                        for (int du = -params.confidence_radius; du <= params.confidence_radius; ++du) {
-                            int uu = u + du;
-                            if (uu < 0 || uu >= params.width) continue;
-                            float dn = nb_row[uu];
-                            if (dn > params.min_disp) {
-                                sum += dn;
-                                sum_sq += dn * dn;
-                                count++;
-                            }
+            // Optional disparity variance confidence gate
+            float conf = 1.0f;
+            if (with_confidence && disp_data && confidence_radius > 0) {
+                float sum = 0.0f, sum_sq = 0.0f;
+                int nb_count = 0;
+                int iw = static_cast<int>(width);
+                int ih = static_cast<int>(height);
+                for (int dv = -confidence_radius; dv <= confidence_radius; ++dv) {
+                    int vv = v + dv;
+                    if (vv < 0 || vv >= ih) continue;
+                    const float* nb_row = reinterpret_cast<const float*>(
+                        reinterpret_cast<const char*>(disp_data) + vv * disp_step);
+                    for (int du = -confidence_radius; du <= confidence_radius; ++du) {
+                        int uu = u + du;
+                        if (uu < 0 || uu >= iw) continue;
+                        float dn = nb_row[uu];
+                        if (dn > 0.0f) {
+                            sum += dn;
+                            sum_sq += dn * dn;
+                            nb_count++;
                         }
                     }
-                    if (count > 1) {
-                        float mean = sum / count;
-                        float variance = (sum_sq / count) - (mean * mean);
-                        float sigma = std::sqrt(std::max(variance, 0.0f));
-                        conf = 1.0f / (1.0f + params.confidence_alpha * sigma);
-                        if (conf < params.min_confidence) {
-                            continue;
-                        }
-                    } else {
-                        continue;
-                    }
                 }
-
-                uint32_t rgb = 0;
-                if (params.channels >= 3) {
-                    uint8_t c0 = img_row[u * 3 + 0];
-                    uint8_t c1 = img_row[u * 3 + 1];
-                    uint8_t c2 = img_row[u * 3 + 2];
-                    if (params.is_rgb) {
-                        rgb = (static_cast<uint32_t>(c0) << 16) |
-                              (static_cast<uint32_t>(c1) << 8) |
-                              static_cast<uint32_t>(c2);
-                    } else {
-                        rgb = (static_cast<uint32_t>(c2) << 16) |
-                              (static_cast<uint32_t>(c1) << 8) |
-                              static_cast<uint32_t>(c0);
-                    }
-                }
-
-                if (with_confidence) {
-                    thread_conf_buf[tid].push_back({x_trans, y_trans, z_trans, rgb, conf});
+                if (nb_count > 1) {
+                    float mean = sum / nb_count;
+                    float variance = (sum_sq / nb_count) - (mean * mean);
+                    float sigma = std::sqrt(std::max(variance, 0.0f));
+                    conf = 1.0f / (1.0f + confidence_alpha * sigma);
+                    if (conf < min_confidence) continue;
                 } else {
-                    thread_buf[tid].push_back({x_trans, y_trans, z_trans, rgb});
+                    continue; // isolated pixel — reject
                 }
             }
+
+            // RGB colorization from the left image (stored as RGB8)
+            uint32_t rgb = 0;
+            {
+                uint8_t c0 = img_row[u * 3 + 0];
+                uint8_t c1 = img_row[u * 3 + 1];
+                uint8_t c2 = img_row[u * 3 + 2];
+                if (is_rgb) {
+                    rgb = (static_cast<uint32_t>(c0) << 16) |
+                          (static_cast<uint32_t>(c1) << 8) |
+                           static_cast<uint32_t>(c2);
+                } else {
+                    rgb = (static_cast<uint32_t>(c2) << 16) |
+                          (static_cast<uint32_t>(c1) << 8) |
+                           static_cast<uint32_t>(c0);
+                }
+            }
+
+            if (with_confidence) {
+                dst_conf[count++] = {x_t, y_t, z_t, rgb, conf};
+            } else {
+                dst_rgb[count++] = {x_t, y_t, z_t, rgb};
+            }
         }
     }
 
-    size_t offset = 0;
-    if (with_confidence) {
-        auto* dst = reinterpret_cast<PointXYZRGBConfidence*>(out_points);
-        for (const auto& local : thread_conf_buf) {
-            size_t count = std::min(local.size(), max_points - offset);
-            if (count > 0) {
-                std::memcpy(dst + offset, local.data(), count * sizeof(PointXYZRGBConfidence));
-                offset += count;
-            }
-            if (offset >= max_points) break;
-        }
-    } else {
-        auto* dst = reinterpret_cast<PointXYZRGB*>(out_points);
-        for (const auto& local : thread_buf) {
-            size_t count = std::min(local.size(), max_points - offset);
-            if (count > 0) {
-                std::memcpy(dst + offset, local.data(), count * sizeof(PointXYZRGB));
-                offset += count;
-            }
-            if (offset >= max_points) break;
-        }
-    }
-
-    return offset;
+    return count;
 }
 
 void RetinifyStereoNode::onStereoImages(
@@ -484,9 +457,6 @@ void RetinifyStereoNode::onStereoImages(
     this->get_parameter("confidence_radius", confidence_radius_);
     this->get_parameter("confidence_alpha", confidence_alpha_);
     this->get_parameter("min_confidence", min_confidence_);
-    this->get_parameter("invert_x", invert_x_);
-    this->get_parameter("invert_y", invert_y_);
-    this->get_parameter("invert_z", invert_z_);
     this->get_parameter("sampling_factor", sampling_factor_);
     this->get_parameter("crop_factor", crop_factor_);
     this->get_parameter("min_disp", min_disp_);
@@ -544,10 +514,11 @@ void RetinifyStereoNode::onStereoImages(
 
     rclcpp::Time stamp = msg_left->header.stamp;
 
-    float* disp_ptr = h_pinned_disp_ ? h_pinned_disp_ : cpu_disp_buffer_.data();
+    float* disp_ptr = nullptr;
 
-    // 1. Retrieve Disparity (1-channel float only)
-    if (publish_disparity_ || debug_image_ || publish_pointcloud_) {
+    // 1. Retrieve Disparity (only needed for publish_disparity, debug_image, or confidence gate)
+    if (publish_disparity_ || debug_image_) {
+        disp_ptr = h_pinned_disp_ ? h_pinned_disp_ : cpu_disp_buffer_.data();
         auto disp_status = pipeline_.RetrieveDisparity(
             disp_ptr, width * sizeof(float));
 
@@ -603,125 +574,113 @@ void RetinifyStereoNode::onStereoImages(
         }
     }
 
-    // 2. High-Efficiency GPU Triangulation & Confidence Filtering
+    // 2. Retinify GPU PointCloud Reprojection + CPU Compaction
     if (publish_pointcloud_ && pub_pointcloud_) {
-        float sampling = static_cast<float>(std::clamp(sampling_factor_, 0.01, 1.0));
-        int step = std::max(1, static_cast<int>(1.0f / sampling));
-        double crop = std::clamp(crop_factor_, 0.01, 1.0);
-        int crop_w = static_cast<int>(width * crop);
-        int crop_h = static_cast<int>(height * crop);
-        int u0 = (static_cast<int>(width) - crop_w) / 2;
-        int v0 = (static_cast<int>(height) - crop_h) / 2;
-        int u1 = u0 + crop_w;
-        int v1 = v0 + crop_h;
+        if (!h_pinned_xyz_) {
+            RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000,
+                "XYZ pinned buffer not allocated — skipping pointcloud publish");
+        } else {
+            // RetrievePointCloud: Retinify internally reprojects disparity→XYZ entirely on GPU,
+            // then DMA-transfers the dense W×H×3 float grid to the pinned host buffer.
+            auto pc_status = pipeline_.RetrievePointCloud(
+                h_pinned_xyz_, width * 3 * sizeof(float));
 
-        int n_u = (u1 - u0 + step - 1) / step;
-        int n_v = (v1 - v0 + step - 1) / step;
-        size_t max_pts = static_cast<size_t>(n_u) * static_cast<size_t>(n_v);
-
-        TriangulationParams params;
-        params.width = width;
-        params.height = height;
-        params.u0 = u0;
-        params.v0 = v0;
-        params.u1 = u1;
-        params.v1 = v1;
-        params.step = step;
-        params.fx = static_cast<float>(fx_);
-        params.fy = static_cast<float>(fy_);
-        params.cx = static_cast<float>(cx_);
-        params.cy = static_cast<float>(cy_);
-        params.baseline = static_cast<float>(baseline_);
-        params.min_disp = static_cast<float>(min_disp_);
-        params.max_dist_sq = (max_dist_ > 0.0) ? static_cast<float>(max_dist_ * max_dist_) : -1.0f;
-        std::memcpy(params.R, R_combined_, sizeof(float) * 9);
-        std::memcpy(params.T, T_combined_, sizeof(float) * 3);
-        params.channels = 3;
-        params.is_rgb = true;
-        params.img_step = static_cast<int>(left_img.step[0]);
-        params.disp_step = width * sizeof(float);
-        params.confidence_radius = confidence_radius_;
-        params.confidence_alpha = static_cast<float>(confidence_alpha_);
-        params.min_confidence = static_cast<float>(min_confidence_);
-        params.invert_x = invert_x_;
-        params.invert_y = invert_y_;
-        params.invert_z = invert_z_;
-
-        size_t valid_pts = 0;
-        const void* point_ptr = nullptr;
-        uint32_t point_step = publish_confidence_field_ ? sizeof(PointXYZRGBConfidence) : sizeof(PointXYZRGB);
-
-        bool use_cuda = use_gpu_ && cuda_triangulator_ && cuda_triangulator_->is_available();
-
-        if (use_cuda) {
-            if (publish_confidence_field_) {
-                PointXYZRGBConfidence* h_pts = nullptr;
-                valid_pts = cuda_triangulator_->triangulate(
-                    disp_ptr, width * height * sizeof(float),
-                    left_img.ptr<uint8_t>(), left_img.step[0] * height,
-                    params, max_pts, &h_pts);
-                point_ptr = h_pts;
+            if (!pc_status.IsOK()) {
+                RCLCPP_ERROR(get_logger(), "Retinify RetrievePointCloud failed!");
             } else {
-                PointXYZRGB* h_pts = nullptr;
-                valid_pts = cuda_triangulator_->triangulate(
-                    disp_ptr, width * height * sizeof(float),
-                    left_img.ptr<uint8_t>(), left_img.step[0] * height,
-                    params, max_pts, &h_pts);
-                point_ptr = h_pts;
+                // Compute crop/sampling parameters
+                float sampling = static_cast<float>(std::clamp(sampling_factor_, 0.01, 1.0));
+                int step = std::max(1, static_cast<int>(1.0f / sampling));
+                double crop = std::clamp(crop_factor_, 0.01, 1.0);
+                int crop_w = static_cast<int>(width * crop);
+                int crop_h = static_cast<int>(height * crop);
+                int u0 = (static_cast<int>(width) - crop_w) / 2;
+                int v0 = (static_cast<int>(height) - crop_h) / 2;
+                int u1 = u0 + crop_w;
+                int v1 = v0 + crop_h;
+
+                float max_dist_sq = (max_dist_ > 0.0) ?
+                    static_cast<float>(max_dist_ * max_dist_) : -1.0f;
+
+                // If confidence gate is requested we also need the disparity map.
+                // disp_ptr is already filled above if publish_disparity_ or debug_image_ was set.
+                // If neither was set but confidence is requested, retrieve disparity now.
+                float* disp_for_conf = nullptr;
+                if (publish_confidence_field_ && confidence_radius_ > 0) {
+                    if (disp_ptr) {
+                        disp_for_conf = disp_ptr;
+                    } else {
+                        // Disparity wasn't retrieved above — do it now
+                        float* dp = h_pinned_disp_ ? h_pinned_disp_ : cpu_disp_buffer_.data();
+                        if (dp) {
+                            auto ds = pipeline_.RetrieveDisparity(dp, width * sizeof(float));
+                            if (ds.IsOK()) disp_for_conf = dp;
+                        }
+                    }
+                }
+
+                uint32_t point_step = publish_confidence_field_ ?
+                    sizeof(PointXYZRGBConfidence) : sizeof(PointXYZRGB);
+
+                size_t valid_pts = compactPointCloud(
+                    h_pinned_xyz_,
+                    left_img.ptr<uint8_t>(),
+                    width, height,
+                    u0, v0, u1, v1,
+                    step,
+                    max_dist_sq,
+                    static_cast<int>(left_img.step[0]),
+                    /*is_rgb=*/true,
+                    cpu_point_buffer_.data(),
+                    publish_confidence_field_,
+                    disp_for_conf,
+                    static_cast<int>(width * sizeof(float)),
+                    confidence_radius_,
+                    static_cast<float>(confidence_alpha_),
+                    static_cast<float>(min_confidence_));
+
+                // Build PointCloud2 message
+                std::string effective_frame = frame_id_;
+                if (effective_frame.empty() || effective_frame == "auto") {
+                    effective_frame = msg_left->header.frame_id;
+                }
+
+                auto cloud_msg = std::make_unique<sensor_msgs::msg::PointCloud2>();
+                cloud_msg->header.stamp = stamp;
+                cloud_msg->header.frame_id = (tf_static_cached_ && !parent_frame_.empty()) ?
+                    parent_frame_ : effective_frame;
+                cloud_msg->height = 1;
+                cloud_msg->width = static_cast<uint32_t>(valid_pts);
+                cloud_msg->is_dense = false;
+                cloud_msg->is_bigendian = false;
+
+                sensor_msgs::PointCloud2Modifier modifier(*cloud_msg);
+                if (publish_confidence_field_) {
+                    modifier.setPointCloud2Fields(5,
+                        "x", 1, sensor_msgs::msg::PointField::FLOAT32,
+                        "y", 1, sensor_msgs::msg::PointField::FLOAT32,
+                        "z", 1, sensor_msgs::msg::PointField::FLOAT32,
+                        "rgb", 1, sensor_msgs::msg::PointField::UINT32,
+                        "confidence", 1, sensor_msgs::msg::PointField::FLOAT32);
+                } else {
+                    modifier.setPointCloud2Fields(4,
+                        "x", 1, sensor_msgs::msg::PointField::FLOAT32,
+                        "y", 1, sensor_msgs::msg::PointField::FLOAT32,
+                        "z", 1, sensor_msgs::msg::PointField::FLOAT32,
+                        "rgb", 1, sensor_msgs::msg::PointField::UINT32);
+                }
+
+                cloud_msg->point_step = point_step;
+                cloud_msg->row_step = cloud_msg->width * point_step;
+                cloud_msg->data.resize(cloud_msg->row_step);
+
+                if (valid_pts > 0) {
+                    std::memcpy(cloud_msg->data.data(), cpu_point_buffer_.data(), cloud_msg->row_step);
+                }
+
+                pub_pointcloud_->publish(std::move(cloud_msg));
             }
-        } else {
-            // CPU fallback path
-            size_t needed_bytes = max_pts * point_step;
-            if (cpu_point_buffer_.size() < needed_bytes) {
-                cpu_point_buffer_.resize(needed_bytes);
-            }
-            valid_pts = triangulateCPU(
-                disp_ptr, params.disp_step,
-                left_img.ptr<uint8_t>(), params.img_step,
-                params, max_pts, cpu_point_buffer_.data(),
-                publish_confidence_field_);
-            point_ptr = cpu_point_buffer_.data();
         }
-
-        // Build sensor_msgs::msg::PointCloud2 message
-        std::string effective_frame = frame_id_;
-        if (effective_frame.empty() || effective_frame == "auto") {
-            effective_frame = msg_left->header.frame_id;
-        }
-
-        auto cloud_msg = std::make_unique<sensor_msgs::msg::PointCloud2>();
-        cloud_msg->header.stamp = stamp;
-        cloud_msg->header.frame_id = (tf_static_cached_ && !parent_frame_.empty()) ? parent_frame_ : effective_frame;
-        cloud_msg->height = 1;
-        cloud_msg->width = static_cast<uint32_t>(valid_pts);
-        cloud_msg->is_dense = false;
-        cloud_msg->is_bigendian = false;
-
-        sensor_msgs::PointCloud2Modifier modifier(*cloud_msg);
-        if (publish_confidence_field_) {
-            modifier.setPointCloud2Fields(5,
-                "x", 1, sensor_msgs::msg::PointField::FLOAT32,
-                "y", 1, sensor_msgs::msg::PointField::FLOAT32,
-                "z", 1, sensor_msgs::msg::PointField::FLOAT32,
-                "rgb", 1, sensor_msgs::msg::PointField::UINT32,
-                "confidence", 1, sensor_msgs::msg::PointField::FLOAT32);
-        } else {
-            modifier.setPointCloud2Fields(4,
-                "x", 1, sensor_msgs::msg::PointField::FLOAT32,
-                "y", 1, sensor_msgs::msg::PointField::FLOAT32,
-                "z", 1, sensor_msgs::msg::PointField::FLOAT32,
-                "rgb", 1, sensor_msgs::msg::PointField::UINT32);
-        }
-
-        cloud_msg->point_step = point_step;
-        cloud_msg->row_step = cloud_msg->width * cloud_msg->point_step;
-        cloud_msg->data.resize(cloud_msg->row_step);
-
-        if (valid_pts > 0 && point_ptr) {
-            std::memcpy(cloud_msg->data.data(), point_ptr, cloud_msg->row_step);
-        }
-
-        pub_pointcloud_->publish(std::move(cloud_msg));
     }
 
     // 3. Depth Retrieval & Publishing
